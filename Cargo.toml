@@ -8,7 +8,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/MattD-123/eevideo"
+repository = "https://github.com/Matthew-Doe/eevideo"
 rust-version = "1.78"
 version = "0.1.0"
 
