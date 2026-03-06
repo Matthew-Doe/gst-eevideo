@@ -23,6 +23,8 @@ struct Settings {
     bind_address: String,
     mtu: u32,
     packet_delay_ns: u64,
+    multicast_loop: bool,
+    multicast_ttl: u32,
 }
 
 impl Default for Settings {
@@ -33,6 +35,8 @@ impl Default for Settings {
             bind_address: "0.0.0.0".to_string(),
             mtu: 1200,
             packet_delay_ns: 0,
+            multicast_loop: true,
+            multicast_ttl: 1,
         }
     }
 }
@@ -113,6 +117,20 @@ impl ObjectImpl for EeVideoSink {
                     .default_value(0)
                     .flags(glib::ParamFlags::READWRITE)
                     .build(),
+                glib::ParamSpecBoolean::builder("multicast-loop")
+                    .nick("Multicast Loop")
+                    .blurb("Whether locally joined multicast receivers should receive transmitted packets")
+                    .default_value(true)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
+                glib::ParamSpecUInt::builder("multicast-ttl")
+                    .nick("Multicast TTL")
+                    .blurb("IPv4 multicast TTL used when the destination host is a multicast group")
+                    .minimum(0)
+                    .maximum(255)
+                    .default_value(1)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
                 glib::ParamSpecUInt64::builder("frames-sent")
                     .nick("Frames Sent")
                     .blurb("Number of frames transmitted")
@@ -145,7 +163,14 @@ impl ObjectImpl for EeVideoSink {
             }
             "mtu" => settings.mtu = value.get().expect("mtu type checked upstream"),
             "packet-delay-ns" => {
-                settings.packet_delay_ns = value.get().expect("packet-delay-ns type checked upstream")
+                settings.packet_delay_ns =
+                    value.get().expect("packet-delay-ns type checked upstream")
+            }
+            "multicast-loop" => {
+                settings.multicast_loop = value.get().expect("multicast-loop type checked upstream")
+            }
+            "multicast-ttl" => {
+                settings.multicast_ttl = value.get().expect("multicast-ttl type checked upstream")
             }
             _ => unreachable!("unknown property {}", pspec.name()),
         }
@@ -160,6 +185,8 @@ impl ObjectImpl for EeVideoSink {
             "bind-address" => settings.bind_address.to_value(),
             "mtu" => settings.mtu.to_value(),
             "packet-delay-ns" => settings.packet_delay_ns.to_value(),
+            "multicast-loop" => settings.multicast_loop.to_value(),
+            "multicast-ttl" => settings.multicast_ttl.to_value(),
             "frames-sent" => self.stats.frames().to_value(),
             "frames-dropped" => self.stats.dropped_frames().to_value(),
             "packet-anomalies" => self.stats.packet_anomalies().to_value(),
@@ -207,7 +234,11 @@ impl BaseSinkImpl for EeVideoSink {
     fn start(&self) -> Result<(), gst::ErrorMessage> {
         self.unlocked.store(false, Ordering::Relaxed);
 
-        let settings = self.settings.lock().expect("settings lock poisoned").clone();
+        let settings = self
+            .settings
+            .lock()
+            .expect("settings lock poisoned")
+            .clone();
         let socket = UdpSocket::bind((settings.bind_address.as_str(), 0)).map_err(|err| {
             gst::error_msg!(
                 gst::ResourceError::OpenWrite,
@@ -215,12 +246,38 @@ impl BaseSinkImpl for EeVideoSink {
             )
         })?;
 
+        if let Ok(multicast_addr) = settings.host.parse::<std::net::Ipv4Addr>() {
+            if multicast_addr.is_multicast() {
+                socket
+                    .set_multicast_loop_v4(settings.multicast_loop)
+                    .map_err(|err| {
+                        gst::error_msg!(
+                            gst::ResourceError::Settings,
+                            ["failed to set multicast loopback: {}", err]
+                        )
+                    })?;
+                socket
+                    .set_multicast_ttl_v4(settings.multicast_ttl)
+                    .map_err(|err| {
+                        gst::error_msg!(
+                            gst::ResourceError::Settings,
+                            ["failed to set multicast TTL: {}", err]
+                        )
+                    })?;
+            }
+        }
+
         socket
             .connect((settings.host.as_str(), settings.port as u16))
             .map_err(|err| {
                 gst::error_msg!(
                     gst::ResourceError::OpenWrite,
-                    ["failed to connect {}:{}: {}", settings.host, settings.port, err]
+                    [
+                        "failed to connect {}:{}: {}",
+                        settings.host,
+                        settings.port,
+                        err
+                    ]
                 )
             })?;
 
@@ -245,7 +302,11 @@ impl BaseSinkImpl for EeVideoSink {
             return Err(gst::FlowError::Flushing);
         }
 
-        let settings = self.settings.lock().expect("settings lock poisoned").clone();
+        let settings = self
+            .settings
+            .lock()
+            .expect("settings lock poisoned")
+            .clone();
         let packetizer = CompatPacketizer::new(settings.mtu as usize).map_err(|_| {
             self.stats.record_drop();
             self.stats.record_packet_anomaly();

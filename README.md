@@ -186,6 +186,27 @@ Example receiver:
 gst-launch-1.0 eevideosrc address=127.0.0.1 port=5000 timeout-ms=2000 ! videoconvert ! fpsdisplaysink sync=false video-sink=d3d11videosink text-overlay=true
 ```
 
+## Multiple Receivers On One Port
+
+Multiple `eevideosrc` instances can share the same UDP port when the sender uses
+IPv4 multicast.
+
+Start each receiver with the same `multicast-group` and `port`:
+
+```sh
+gst-launch-1.0 eevideosrc address=0.0.0.0 multicast-group=239.255.10.11 port=5000 timeout-ms=2000 ! videoconvert ! autovideosink sync=false
+```
+
+Send to that multicast group:
+
+```sh
+gst-launch-1.0 videotestsrc ! video/x-raw,format=UYVY,width=640,height=480,framerate=30/1 ! eevideosink host=239.255.10.11 port=5000 multicast-loop=true mtu=4000
+```
+
+This is different from unicast localhost loopback. Two unicast receivers cannot
+both bind `127.0.0.1:5000`, but multiple multicast receivers can share the same
+port and receive the same stream.
+
 ## Upstream Interoperability
 
 This repository no longer vendors the upstream EEVideo source trees.
