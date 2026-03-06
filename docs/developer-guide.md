@@ -22,6 +22,10 @@ This repository contains a Rust GStreamer plugin workspace with two crates:
 The project currently targets the existing public EEVideo compatibility stream
 profile, not a fully native EEVideo transport specification.
 
+Original upstream source code and related EEVideo projects are published at:
+
+- https://gitlab.com/eevideo
+
 ## First-Day Checklist
 
 Use this order:
@@ -271,3 +275,4 @@ Check:
 - Read [interop-smoke.md](c:/devel/eevideo/docs/interop-smoke.md) if you want to test against upstream Go tools.
 - Read [spec-enhancement-proposal.md](c:/devel/eevideo/docs/spec-enhancement-proposal.md) if you need the rationale behind current protocol constraints.
 - Read [async-metadata-layout-plan.md](c:/devel/eevideo/docs/async-metadata-layout-plan.md) if you are exploring future metadata-aware transport designs.
+- Use https://gitlab.com/eevideo to find the original upstream source repositories referenced by the docs.

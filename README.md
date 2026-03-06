@@ -11,6 +11,11 @@ The current focus is a functional host-side MVP built around the existing
 public compatibility stream profile rather than a full native EEVideo transport
 stack.
 
+The original EEVideo repositories and specification work are published under
+the EEVideo GitLab group:
+
+- https://gitlab.com/eevideo
+
 ## New Developer Quick Start
 
 If you are new to this repository, start here:
@@ -215,8 +220,16 @@ address.
 
 This repository no longer vendors the upstream EEVideo source trees.
 
-If you want to validate against the public Go tools, clone those upstream
-repositories separately and follow
+Original upstream source code, related projects, and specification documents
+are available at:
+
+- https://gitlab.com/eevideo
+
+Use that GitLab group as the canonical upstream starting point for the original
+EEVideo repository layout and spec material.
+
+If you want to validate against the public Go tools, clone the relevant
+upstream repositories separately from that group and follow
 [docs/interop-smoke.md](docs/interop-smoke.md).
 
 ## Additional Documentation
