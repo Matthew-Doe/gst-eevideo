@@ -63,6 +63,57 @@ fn source_multicast_loopback_reaches_multiple_receivers() {
     );
 }
 
+#[test]
+fn sink_multicast_loopback_reaches_multiple_receivers() {
+    gst::init().unwrap();
+    gsteevideo::register_static().unwrap();
+
+    let (pipeline_a, src_a) = build_receiver_pipeline();
+    let (pipeline_b, src_b) = build_receiver_pipeline();
+    let sender = build_sender_pipeline();
+
+    pipeline_a.set_state(gst::State::Playing).unwrap();
+    pipeline_b.set_state(gst::State::Playing).unwrap();
+    thread::sleep(Duration::from_millis(200));
+
+    sender.set_state(gst::State::Playing).unwrap();
+    let bus = sender.bus().unwrap();
+    let message = bus.timed_pop_filtered(
+        gst::ClockTime::from_seconds(3),
+        &[gst::MessageType::Eos, gst::MessageType::Error],
+    );
+    sender.set_state(gst::State::Null).unwrap();
+
+    if let Some(message) = message {
+        if let gst::MessageView::Error(error) = message.view() {
+            panic!(
+                "sender pipeline failed: {} ({:?})",
+                error.error(),
+                error.debug()
+            );
+        }
+    } else {
+        panic!("sender pipeline timed out before EOS");
+    }
+
+    thread::sleep(Duration::from_millis(300));
+
+    let frames_a: u64 = src_a.property("frames-received");
+    let frames_b: u64 = src_b.property("frames-received");
+
+    pipeline_a.set_state(gst::State::Null).unwrap();
+    pipeline_b.set_state(gst::State::Null).unwrap();
+
+    assert!(
+        frames_a > 0,
+        "expected first receiver to get at least one frame from eevideosink"
+    );
+    assert!(
+        frames_b > 0,
+        "expected second receiver to get at least one frame from eevideosink"
+    );
+}
+
 fn build_receiver_pipeline() -> (gst::Pipeline, gst::Element) {
     let pipeline = gst::Pipeline::default();
     let src = gst::ElementFactory::make("eevideosrc")
@@ -78,4 +129,33 @@ fn build_receiver_pipeline() -> (gst::Pipeline, gst::Element) {
     gst::Element::link_many([&src, &sink]).unwrap();
 
     (pipeline, src)
+}
+
+fn build_sender_pipeline() -> gst::Pipeline {
+    let pipeline = gst::Pipeline::default();
+    let src = gst::ElementFactory::make("videotestsrc")
+        .property("num-buffers", 1i32)
+        .build()
+        .unwrap();
+    let capsfilter = gst::ElementFactory::make("capsfilter")
+        .property(
+            "caps",
+            "video/x-raw,format=UYVY,width=32,height=32,framerate=1/1"
+                .parse::<gst::Caps>()
+                .unwrap(),
+        )
+        .build()
+        .unwrap();
+    let sink = gst::ElementFactory::make("eevideosink")
+        .property("host", MULTICAST_GROUP)
+        .property("port", MULTICAST_PORT)
+        .property("multicast-loop", true)
+        .property("multicast-ttl", 1u32)
+        .build()
+        .unwrap();
+
+    pipeline.add_many([&src, &capsfilter, &sink]).unwrap();
+    gst::Element::link_many([&src, &capsfilter, &sink]).unwrap();
+
+    pipeline
 }
