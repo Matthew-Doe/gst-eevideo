@@ -11,6 +11,16 @@ The current focus is a functional host-side MVP built around the existing
 public compatibility stream profile rather than a full native EEVideo transport
 stack.
 
+## New Developer Quick Start
+
+If you are new to this repository, start here:
+
+1. Read [docs/developer-guide.md](docs/developer-guide.md).
+2. Install the toolchain and GStreamer dependencies for your platform.
+3. Run `cargo test --workspace`.
+4. Run the localhost smoke test from this README.
+5. Read [docs/implementation-profile.md](docs/implementation-profile.md) before changing packet behavior.
+
 ## Current Scope
 
 Implemented today:
@@ -186,9 +196,11 @@ repositories separately and follow
 
 ## Additional Documentation
 
+- [docs/developer-guide.md](docs/developer-guide.md)
 - [docs/implementation-profile.md](docs/implementation-profile.md)
 - [docs/interop-smoke.md](docs/interop-smoke.md)
 - [docs/spec-enhancement-proposal.md](docs/spec-enhancement-proposal.md)
+- [docs/async-metadata-layout-plan.md](docs/async-metadata-layout-plan.md)
 
 ## Roadmap
 
