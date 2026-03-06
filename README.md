@@ -207,6 +207,10 @@ This is different from unicast localhost loopback. Two unicast receivers cannot
 both bind `127.0.0.1:5000`, but multiple multicast receivers can share the same
 port and receive the same stream.
 
+On multihomed systems, you can set `multicast-iface` on both `eevideosrc` and
+`eevideosink` to pin multicast traffic to a specific local IPv4 interface
+address.
+
 ## Upstream Interoperability
 
 This repository no longer vendors the upstream EEVideo source trees.
