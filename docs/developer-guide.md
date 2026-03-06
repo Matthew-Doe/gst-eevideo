@@ -122,6 +122,30 @@ Sender:
 gst-launch-1.0 videotestsrc ! video/x-raw,format=RGB,width=640,height=480,framerate=30/1 ! eevideosink host=127.0.0.1 port=5000 mtu=4000
 ```
 
+### Multiple receivers on one port
+
+If you want more than one `eevideosrc` process to receive the same stream on the
+same UDP port, use IPv4 multicast.
+
+Each receiver should bind the same `port` and join the same `multicast-group`:
+
+```sh
+gst-launch-1.0 eevideosrc address=0.0.0.0 multicast-group=239.255.10.11 port=5000 timeout-ms=2000 ! videoconvert ! autovideosink sync=false
+```
+
+The sender must transmit to that multicast destination:
+
+```sh
+gst-launch-1.0 videotestsrc ! video/x-raw,format=UYVY,width=640,height=480,framerate=30/1 ! eevideosink host=239.255.10.11 port=5000 multicast-loop=true mtu=4000
+```
+
+Two unicast listeners cannot both bind `127.0.0.1:5000`. Same-port fanout in
+this plugin is multicast-based rather than unicast socket sharing.
+
+If the host has multiple network interfaces and the default route is not the one
+you want, set `multicast-iface` on `eevideosrc` and `eevideosink` to a local
+IPv4 interface address.
+
 ## Where To Make Changes
 
 ### If you are changing the wire format

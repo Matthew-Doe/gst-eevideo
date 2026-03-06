@@ -13,6 +13,7 @@ use gst_base::subclass::prelude::*;
 use gstreamer as gst;
 use gstreamer_base as gst_base;
 use once_cell::sync::Lazy;
+use socket2::SockRef;
 
 use crate::common::{parse_caps, FrameFormat};
 
@@ -21,8 +22,11 @@ struct Settings {
     host: String,
     port: u32,
     bind_address: String,
+    multicast_iface: String,
     mtu: u32,
     packet_delay_ns: u64,
+    multicast_loop: bool,
+    multicast_ttl: u32,
 }
 
 impl Default for Settings {
@@ -31,8 +35,11 @@ impl Default for Settings {
             host: "127.0.0.1".to_string(),
             port: 5000,
             bind_address: "0.0.0.0".to_string(),
+            multicast_iface: String::new(),
             mtu: 1200,
             packet_delay_ns: 0,
+            multicast_loop: true,
+            multicast_ttl: 1,
         }
     }
 }
@@ -97,6 +104,12 @@ impl ObjectImpl for EeVideoSink {
                     .default_value(Some("0.0.0.0"))
                     .flags(glib::ParamFlags::READWRITE)
                     .build(),
+                glib::ParamSpecString::builder("multicast-iface")
+                    .nick("Multicast Interface")
+                    .blurb("Optional local IPv4 interface address used for multicast transmit")
+                    .default_value(None)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
                 glib::ParamSpecUInt::builder("mtu")
                     .nick("MTU")
                     .blurb("Maximum packet size including the compatibility-stream UDP payload")
@@ -111,6 +124,20 @@ impl ObjectImpl for EeVideoSink {
                     .minimum(0)
                     .maximum(u32::MAX as u64)
                     .default_value(0)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
+                glib::ParamSpecBoolean::builder("multicast-loop")
+                    .nick("Multicast Loop")
+                    .blurb("Whether locally joined multicast receivers should receive transmitted packets")
+                    .default_value(true)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
+                glib::ParamSpecUInt::builder("multicast-ttl")
+                    .nick("Multicast TTL")
+                    .blurb("IPv4 multicast TTL used when the destination host is a multicast group")
+                    .minimum(0)
+                    .maximum(255)
+                    .default_value(1)
                     .flags(glib::ParamFlags::READWRITE)
                     .build(),
                 glib::ParamSpecUInt64::builder("frames-sent")
@@ -143,9 +170,20 @@ impl ObjectImpl for EeVideoSink {
             "bind-address" => {
                 settings.bind_address = value.get().expect("bind-address type checked upstream")
             }
+            "multicast-iface" => {
+                settings.multicast_iface =
+                    value.get().expect("multicast-iface type checked upstream")
+            }
             "mtu" => settings.mtu = value.get().expect("mtu type checked upstream"),
             "packet-delay-ns" => {
-                settings.packet_delay_ns = value.get().expect("packet-delay-ns type checked upstream")
+                settings.packet_delay_ns =
+                    value.get().expect("packet-delay-ns type checked upstream")
+            }
+            "multicast-loop" => {
+                settings.multicast_loop = value.get().expect("multicast-loop type checked upstream")
+            }
+            "multicast-ttl" => {
+                settings.multicast_ttl = value.get().expect("multicast-ttl type checked upstream")
             }
             _ => unreachable!("unknown property {}", pspec.name()),
         }
@@ -158,8 +196,11 @@ impl ObjectImpl for EeVideoSink {
             "host" => settings.host.to_value(),
             "port" => settings.port.to_value(),
             "bind-address" => settings.bind_address.to_value(),
+            "multicast-iface" => settings.multicast_iface.to_value(),
             "mtu" => settings.mtu.to_value(),
             "packet-delay-ns" => settings.packet_delay_ns.to_value(),
+            "multicast-loop" => settings.multicast_loop.to_value(),
+            "multicast-ttl" => settings.multicast_ttl.to_value(),
             "frames-sent" => self.stats.frames().to_value(),
             "frames-dropped" => self.stats.dropped_frames().to_value(),
             "packet-anomalies" => self.stats.packet_anomalies().to_value(),
@@ -207,7 +248,11 @@ impl BaseSinkImpl for EeVideoSink {
     fn start(&self) -> Result<(), gst::ErrorMessage> {
         self.unlocked.store(false, Ordering::Relaxed);
 
-        let settings = self.settings.lock().expect("settings lock poisoned").clone();
+        let settings = self
+            .settings
+            .lock()
+            .expect("settings lock poisoned")
+            .clone();
         let socket = UdpSocket::bind((settings.bind_address.as_str(), 0)).map_err(|err| {
             gst::error_msg!(
                 gst::ResourceError::OpenWrite,
@@ -215,12 +260,55 @@ impl BaseSinkImpl for EeVideoSink {
             )
         })?;
 
+        if let Ok(multicast_addr) = settings.host.parse::<std::net::Ipv4Addr>() {
+            if multicast_addr.is_multicast() {
+                if let Some(multicast_iface) = parse_multicast_iface(&settings.multicast_iface)
+                    .map_err(|err| {
+                        gst::error_msg!(
+                            gst::ResourceError::Settings,
+                            ["failed to parse multicast interface: {}", err]
+                        )
+                    })?
+                {
+                    SockRef::from(&socket)
+                        .set_multicast_if_v4(&multicast_iface)
+                        .map_err(|err| {
+                            gst::error_msg!(
+                                gst::ResourceError::Settings,
+                                ["failed to set multicast interface: {}", err]
+                            )
+                        })?;
+                }
+                socket
+                    .set_multicast_loop_v4(settings.multicast_loop)
+                    .map_err(|err| {
+                        gst::error_msg!(
+                            gst::ResourceError::Settings,
+                            ["failed to set multicast loopback: {}", err]
+                        )
+                    })?;
+                socket
+                    .set_multicast_ttl_v4(settings.multicast_ttl)
+                    .map_err(|err| {
+                        gst::error_msg!(
+                            gst::ResourceError::Settings,
+                            ["failed to set multicast TTL: {}", err]
+                        )
+                    })?;
+            }
+        }
+
         socket
             .connect((settings.host.as_str(), settings.port as u16))
             .map_err(|err| {
                 gst::error_msg!(
                     gst::ResourceError::OpenWrite,
-                    ["failed to connect {}:{}: {}", settings.host, settings.port, err]
+                    [
+                        "failed to connect {}:{}: {}",
+                        settings.host,
+                        settings.port,
+                        err
+                    ]
                 )
             })?;
 
@@ -245,7 +333,11 @@ impl BaseSinkImpl for EeVideoSink {
             return Err(gst::FlowError::Flushing);
         }
 
-        let settings = self.settings.lock().expect("settings lock poisoned").clone();
+        let settings = self
+            .settings
+            .lock()
+            .expect("settings lock poisoned")
+            .clone();
         let packetizer = CompatPacketizer::new(settings.mtu as usize).map_err(|_| {
             self.stats.record_drop();
             self.stats.record_packet_anomaly();
@@ -330,4 +422,15 @@ impl BaseSinkImpl for EeVideoSink {
         self.unlocked.store(false, Ordering::Relaxed);
         Ok(())
     }
+}
+
+fn parse_multicast_iface(
+    value: &str,
+) -> Result<Option<std::net::Ipv4Addr>, std::net::AddrParseError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    value.parse::<std::net::Ipv4Addr>().map(Some)
 }

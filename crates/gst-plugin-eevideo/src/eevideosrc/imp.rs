@@ -1,4 +1,5 @@
-use std::net::UdpSocket;
+use std::io::{self, ErrorKind};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -17,6 +18,7 @@ use gst_base::subclass::prelude::*;
 use gstreamer as gst;
 use gstreamer_base as gst_base;
 use once_cell::sync::Lazy;
+use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::common::FrameFormat;
 
@@ -24,6 +26,8 @@ use crate::common::FrameFormat;
 struct Settings {
     address: String,
     port: u32,
+    multicast_group: String,
+    multicast_iface: String,
     timeout_ms: u64,
     latency_ms: u64,
     drop_incomplete: bool,
@@ -34,6 +38,8 @@ impl Default for Settings {
         Self {
             address: "0.0.0.0".to_string(),
             port: 5000,
+            multicast_group: String::new(),
+            multicast_iface: String::new(),
             timeout_ms: 2000,
             latency_ms: 0,
             drop_incomplete: true,
@@ -105,6 +111,18 @@ impl ObjectImpl for EeVideoSrc {
                     .default_value(5000)
                     .flags(glib::ParamFlags::READWRITE)
                     .build(),
+                glib::ParamSpecString::builder("multicast-group")
+                    .nick("Multicast Group")
+                    .blurb("Optional IPv4 multicast group to join for shared UDP reception")
+                    .default_value(None)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
+                glib::ParamSpecString::builder("multicast-iface")
+                    .nick("Multicast Interface")
+                    .blurb("Optional local IPv4 interface address used to join the multicast group")
+                    .default_value(None)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
                 glib::ParamSpecUInt64::builder("timeout-ms")
                     .nick("Timeout")
                     .blurb("Timeout in milliseconds before incomplete frames are reaped")
@@ -154,10 +172,23 @@ impl ObjectImpl for EeVideoSrc {
         match pspec.name() {
             "address" => settings.address = value.get().expect("address type checked upstream"),
             "port" => settings.port = value.get().expect("port type checked upstream"),
-            "timeout-ms" => settings.timeout_ms = value.get().expect("timeout type checked upstream"),
-            "latency-ms" => settings.latency_ms = value.get().expect("latency type checked upstream"),
+            "multicast-group" => {
+                settings.multicast_group =
+                    value.get().expect("multicast-group type checked upstream")
+            }
+            "multicast-iface" => {
+                settings.multicast_iface =
+                    value.get().expect("multicast-iface type checked upstream")
+            }
+            "timeout-ms" => {
+                settings.timeout_ms = value.get().expect("timeout type checked upstream")
+            }
+            "latency-ms" => {
+                settings.latency_ms = value.get().expect("latency type checked upstream")
+            }
             "drop-incomplete" => {
-                settings.drop_incomplete = value.get().expect("drop-incomplete type checked upstream")
+                settings.drop_incomplete =
+                    value.get().expect("drop-incomplete type checked upstream")
             }
             _ => unreachable!("unknown property {}", pspec.name()),
         }
@@ -169,6 +200,8 @@ impl ObjectImpl for EeVideoSrc {
         match pspec.name() {
             "address" => settings.address.to_value(),
             "port" => settings.port.to_value(),
+            "multicast-group" => settings.multicast_group.to_value(),
+            "multicast-iface" => settings.multicast_iface.to_value(),
             "timeout-ms" => settings.timeout_ms.to_value(),
             "latency-ms" => settings.latency_ms.to_value(),
             "drop-incomplete" => settings.drop_incomplete.to_value(),
@@ -219,12 +252,34 @@ impl BaseSrcImpl for EeVideoSrc {
     fn start(&self) -> Result<(), gst::ErrorMessage> {
         self.unlocked.store(false, Ordering::Relaxed);
 
-        let settings = self.settings.lock().expect("settings lock poisoned").clone();
-        let socket = UdpSocket::bind((settings.address.as_str(), settings.port as u16)).map_err(|err| {
-            gst::error_msg!(
-                gst::ResourceError::OpenRead,
-                ["failed to bind {}:{}: {}", settings.address, settings.port, err]
-            )
+        let settings = self
+            .settings
+            .lock()
+            .expect("settings lock poisoned")
+            .clone();
+        let socket = create_receiver_socket(&settings).map_err(|err| {
+            if settings.multicast_group.is_empty() {
+                gst::error_msg!(
+                    gst::ResourceError::OpenRead,
+                    [
+                        "failed to bind {}:{}: {}",
+                        settings.address,
+                        settings.port,
+                        err
+                    ]
+                )
+            } else {
+                gst::error_msg!(
+                    gst::ResourceError::OpenRead,
+                    [
+                        "failed to bind {}:{} and join multicast group {}: {}",
+                        settings.address,
+                        settings.port,
+                        settings.multicast_group,
+                        err
+                    ]
+                )
+            }
         })?;
         socket
             .set_read_timeout(Some(Duration::from_millis(100)))
@@ -238,7 +293,13 @@ impl BaseSrcImpl for EeVideoSrc {
         let (sender, receiver) = mpsc::sync_channel(8);
         let stop = Arc::new(AtomicBool::new(false));
         let stats = Arc::clone(&self.stats);
-        let join = Some(spawn_receiver_thread(socket, settings, stop.clone(), stats, sender));
+        let join = Some(spawn_receiver_thread(
+            socket,
+            settings,
+            stop.clone(),
+            stats,
+            sender,
+        ));
 
         let mut state = self.state.lock().expect("state lock poisoned");
         *state = Some(RunningState {
@@ -399,7 +460,8 @@ fn spawn_receiver_thread(
                     }
                 }
                 Err(err) => {
-                    let _ = sender.try_send(ReceiverEvent::Error(format!("udp receive failed: {err}")));
+                    let _ =
+                        sender.try_send(ReceiverEvent::Error(format!("udp receive failed: {err}")));
                     break;
                 }
             }
@@ -407,4 +469,126 @@ fn spawn_receiver_thread(
             let _ = assembler.reap_timeouts(Instant::now(), &stats);
         }
     })
+}
+
+fn create_receiver_socket(settings: &Settings) -> io::Result<UdpSocket> {
+    let multicast_group = parse_multicast_group(&settings.multicast_group)?;
+    let multicast_iface = if multicast_group.is_some() {
+        parse_multicast_iface(&settings.multicast_iface)?
+    } else {
+        None
+    };
+    let bind_addr = resolve_socket_addr(&settings.address, settings.port as u16)?;
+
+    if multicast_group.is_some() && !matches!(bind_addr.ip(), IpAddr::V4(_)) {
+        return Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            "multicast-group requires an IPv4 bind address",
+        ));
+    }
+
+    let socket = Socket::new(
+        Domain::for_address(bind_addr),
+        Type::DGRAM,
+        Some(Protocol::UDP),
+    )?;
+
+    if multicast_group.is_some() {
+        socket.set_reuse_address(true)?;
+    }
+
+    socket.bind(&bind_addr.into())?;
+
+    let socket: UdpSocket = socket.into();
+    if let Some(group) = multicast_group {
+        let iface = multicast_iface.unwrap_or(Ipv4Addr::UNSPECIFIED);
+        socket.join_multicast_v4(&group, &iface)?;
+    }
+
+    Ok(socket)
+}
+
+fn resolve_socket_addr(address: &str, port: u16) -> io::Result<SocketAddr> {
+    (address, port).to_socket_addrs()?.next().ok_or_else(|| {
+        io::Error::new(
+            ErrorKind::AddrNotAvailable,
+            format!("no socket addresses resolved for {address}:{port}"),
+        )
+    })
+}
+
+fn parse_multicast_group(value: &str) -> io::Result<Option<Ipv4Addr>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    let address = value.parse::<Ipv4Addr>().map_err(|err| {
+        io::Error::new(
+            ErrorKind::InvalidInput,
+            format!("invalid multicast group {value}: {err}"),
+        )
+    })?;
+
+    if !address.is_multicast() {
+        return Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            format!("multicast-group must be an IPv4 multicast address, got {value}"),
+        ));
+    }
+
+    Ok(Some(address))
+}
+
+fn parse_multicast_iface(value: &str) -> io::Result<Option<Ipv4Addr>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    let address = value.parse::<Ipv4Addr>().map_err(|err| {
+        io::Error::new(
+            ErrorKind::InvalidInput,
+            format!("invalid multicast interface {value}: {err}"),
+        )
+    })?;
+
+    Ok(Some(address))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_multicast_group, parse_multicast_iface};
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn accepts_empty_multicast_group() {
+        assert_eq!(parse_multicast_group("").unwrap(), None);
+    }
+
+    #[test]
+    fn accepts_ipv4_multicast_group() {
+        assert_eq!(
+            parse_multicast_group("239.255.10.10").unwrap(),
+            Some(Ipv4Addr::new(239, 255, 10, 10))
+        );
+    }
+
+    #[test]
+    fn rejects_non_multicast_group() {
+        assert!(parse_multicast_group("127.0.0.1").is_err());
+    }
+
+    #[test]
+    fn accepts_empty_multicast_iface() {
+        assert_eq!(parse_multicast_iface("").unwrap(), None);
+    }
+
+    #[test]
+    fn accepts_ipv4_multicast_iface() {
+        assert_eq!(
+            parse_multicast_iface("192.168.1.20").unwrap(),
+            Some(Ipv4Addr::new(192, 168, 1, 20))
+        );
+    }
 }
