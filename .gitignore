@@ -1,0 +1,15 @@
+target/
+Cargo.lock
+local-gstreamer/
+
+.vs/
+.vscode/
+.idea/
+
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+
+Thumbs.db
+.DS_Store

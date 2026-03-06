@@ -1,0 +1,8 @@
+# Configuration Variables for eevlark
+verbose: 0
+scriptName: "test.py"
+scriptPath: "./scripts"
+devicePath: "./devices"
+filePath: "./images"
+frameCount: 10
+streamNum: "stream0"

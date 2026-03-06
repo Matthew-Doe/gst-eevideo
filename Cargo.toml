@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "crates/eevideo-proto",
+    "crates/gst-plugin-eevideo",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://gitlab.com/eevideo"
+rust-version = "1.78"
+version = "0.1.0"
+
+[workspace.dependencies]
+glib = "0.20"
+gstreamer = { version = "0.23", features = ["v1_26"] }
+gstreamer-base = { version = "0.23", features = ["v1_26"] }
+once_cell = "1.20"
+

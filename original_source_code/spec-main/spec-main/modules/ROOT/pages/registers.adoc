@@ -1,0 +1,163 @@
+= Registers
+
+== Register Map
+EEVideo register allocation is flexible to allow limited memory space maps for low-capability devices.
+
+One possible structure that can lower complexity is dividing the register map between dynamic and static registers.  This enables devices to respond to static register read requests from a compact ROM space starting at address 0.  Write requests to that space can be ignored.
+
+NOTE: Not all "read only" registers are static.  Registers may define their access as "read only" indicating these register cannot be written.  Some of those "read only" registers may contain values that change during typical device operation.  Mapping these dynamic "read only" registers to a physical ROM (read only memory) space does not reduce implementation complexity.
+
+=== Read Only Registers
+
+==== Register 0
+EEVideo Management only requires a single register.  All others are optional.
+
+Register 0 is a read only (static) register containing a 16 bit EEVideo identifier and 16 bits declaring specified EEVideo Management Protocol capabilities.
+
+.Register 0
+[bytefield, target=reg0, format=svg]
+....
+(defattrs :hex {:font-family "Source Code Pro", :font-size 10})
+(defattrs :plain {:font-family "Source Code Pro", :font-size 10})
+(defattrs :vertical [:plain {:writing-mode "vertical-rl"}])
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def left-margin 1)
+(def row-height 26)
+(def box-width 16)
+(def font-family "Source Code Pro")
+(draw-column-headers {:font-family "Source Code Pro" :font-size 7.5})
+  (draw-box "ID=0xE71D" {:span 16})
+  (draw-box "c0")
+  (draw-box "c1")
+  (draw-box "c2")
+  (draw-box "c3")
+  (draw-box "c4")
+  (draw-box "c5")
+  (draw-box "c6")
+  (draw-box "c7")
+  (draw-box "c8")
+  (draw-box "c9")
+  (draw-box "cA")
+  (draw-box "cB")
+  (draw-box "cC")
+  (draw-box "cD")
+  (draw-box "cE")
+  (draw-box "cF")
+(draw-bottom)
+....
+
+.Register 0 Fields
+[width=75%]
+[cols="h,8"]
+|===
+|Field     | Description
+
+| ID       | Common Identifier for EEVideo Devices.  May be used to validate bit and byte endian.
+| c0       | 1 = Feature Declaration List Available
+| c1       |
+| c2       |
+| c3       |
+| c4       | 1 = Multiple Binary Address Options supported
+| c5       | 1 = String Type Read Available
+| c6       | 1 = FIFO Read Type available
+| c7       | 1 = Read &Reset Type available
+| c8       | 1 = Masked Write Available
+| c9       | 1 = Bit Toggle Write Available
+| cA       | 1 = Bit Set Write Available
+| cB       | 1 = Bit Clear Write Available
+| cC       | 1 = Static IP Set
+| cD       | 1 = Link Local Address Set
+| cE       | 1 = DHCP Address Set
+| cF       | 1 = Multi-cast CoAP discovery supported
+|===
+
+==== Registers 0x04, 0x08, 0x0C
+Registers 0x04, 0x08 and 0x0C are reserved for other static read-only values.
+
+==== Feature Declaration List 0x10-
+
+If the device offered a Feature Declaration List, this list shall begin at register 0x10.
+
+This list declares all the features included in the EEVideo device.
+
+Hosts can read this list to develop an index of available features and the addresses of the registers provided by those features.  The format of these declarations is described below.
+
+The end of the Feature Declaration List is indicated by the "End of Features" marker.
+
+==== Additional Static Registers
+
+Individual features may support additional static registers.  These registers can be mapped after the Feature List.  The addresses of these registers are all specified by pointers in the Feature List.
+
+=== Dynamic Registers
+
+The addresses of dynamic registers begin after the declared static registers.  It may be helpful to skip to the next address at a power of 2.  For example if there are 815 (4 byte) static registers, it might make sense to start the dynamic registers at 0x1000 (4096 decimal).
+
+This provides the host the additional capability of knowing which registers may change during operation just by looking at the upper address bits.  Re-reading declared static registers is not efficient.
+
+Typically, the dynamic registers may not be actual memory locations, but rather represent specific function calls.
+
+If there are regions of writable registers that do represent physical memory locations, it may be helpful to group them together in address blocks.  Detailing these blocks is outside the purposes of this specification.
+
+== Feature Discovery
+
+EEVideo offers a list of standardized features that may be included in a device or left out to simplify implementation.  If a given feature does not add value to its target systems, EEVideo does not require resources to be allocated implementing that feature.
+
+If multiple instances of a given feature add value or better describe the device capabilities, they can be declared separately.
+
+The only management feature required by an EEVideo device is the ability to accept register access request packets and provide the appropriate response.  This process is described in the management section.
+
+Each feature is listed contiguously in the Feature Declaration List register block beginning at register 0x10.  The features may be listed in any order, but the End Of Features marker must be last in the list.
+
+The only declaration required if the Feature Declaration List is implemented is the End of Features marker.
+
+.Feature Declaration
+[bytefield, target=featureDec, format=svg]
+....
+(defattrs :hex {:font-family "Source Code Pro", :font-size 10})
+(defattrs :plain {:font-family "Source Code Pro", :font-size 10})
+(defattrs :vertical [:plain {:writing-mode "vertical-rl"}])
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def left-margin 1)
+(def row-height 26)
+(def box-width 16)
+(def font-family "Source Code Pro")
+(draw-column-headers {:font-family "Source Code Pro" :font-size 7.5})
+  (draw-box "Feature Id" {:span 12})
+  (draw-box "Feature Version" {:span 12})
+  (draw-box "Pointer Count" {:span 8})
+  (draw-box "Pointer 0 (if Pointer Count >0" {:span 32})
+  (draw-gap "Additional Pointers (if Pointer Count >1)")
+(draw-bottom)
+....
+
+Each feature in the list follows this format.
+
+.Feature Declaration Fields
+[cols="3h,1,8"]
+|===
+|Field             | Bits| Description
+
+|Feature ID        | 12  | The identification number of the feature, specified in the feature description
+|Feature Version   | 12  | The version number of the implemented feature
+|Pointer Count     |  8  | The number of pointers defined for this feature, 0-255
+|Pointer 0         | 32  | (if required) Address of the first register specified in the feature description
+|Pointer 1-n       | 32  | (if required) Additional addresses of registers specified in the feature description
+|===
+
+The number of 32-bit registers required to declare each feature is (Pointer Count + 1).
+
+The Feature List ends with the "End Of Features Marker".  This marker is described in this specification at the end of the Device Features list.
+
+The feature list must be parsed using the length of each feature declaration.  Simply scanning for the End of Features Marker could produce an incorrect indication.
+
+Declared features may not include all the registers described in the Feature Specification.  The Pointer Count indicates the actual number of registers implemented for the feature, not the specified maximum.  Different declarations of the same feature may allocate different Pointer Counts.
+
+Register pointers may only indicate the first register address for a group of related registers.  These relationships are described in the Feature Specification.  It is not required to provide a pointer for every address used by the feature.  For example, a memory buffer type feature may only use 2 pointers to access a large block of registers. The first might point to the size of the buffer (static).  The second might point to the address of the first memory location.
+
+The pointers declared for each feature will be represented in the order they are declared in the Feature Specification.  Specified features should declare required registers first and optional registers last.
+
+Registers in the middle of the Feature Specification register list that are not implemented in the device shall point to address 0x0.  When a host discovers a pointer to register 0x0 it must conclude that feature register is not implemented.  Register 0x0 is defined above as the EEVideo Management ID and capability register, a static read-only register.
+
+

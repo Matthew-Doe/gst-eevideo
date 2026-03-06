@@ -1,0 +1,333 @@
+use std::net::UdpSocket;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+use eevideo_proto::{CompatPacketizer, PayloadType, StreamStats, VideoFrame, SUPPORTED_CAPS};
+use gst::glib;
+use gst::prelude::*;
+use gst::subclass::prelude::*;
+use gst_base::prelude::*;
+use gst_base::subclass::prelude::*;
+use gstreamer as gst;
+use gstreamer_base as gst_base;
+use once_cell::sync::Lazy;
+
+use crate::common::{parse_caps, FrameFormat};
+
+#[derive(Clone, Debug)]
+struct Settings {
+    host: String,
+    port: u32,
+    bind_address: String,
+    mtu: u32,
+    packet_delay_ns: u64,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            host: "127.0.0.1".to_string(),
+            port: 5000,
+            bind_address: "0.0.0.0".to_string(),
+            mtu: 1200,
+            packet_delay_ns: 0,
+        }
+    }
+}
+
+struct RunningState {
+    socket: UdpSocket,
+    next_frame_id: u32,
+    negotiated_format: Option<FrameFormat>,
+}
+
+pub struct EeVideoSink {
+    settings: Mutex<Settings>,
+    state: Mutex<Option<RunningState>>,
+    stats: Arc<StreamStats>,
+    unlocked: AtomicBool,
+}
+
+impl Default for EeVideoSink {
+    fn default() -> Self {
+        Self {
+            settings: Mutex::new(Settings::default()),
+            state: Mutex::new(None),
+            stats: Arc::new(StreamStats::default()),
+            unlocked: AtomicBool::new(false),
+        }
+    }
+}
+
+#[glib::object_subclass]
+impl ObjectSubclass for EeVideoSink {
+    const NAME: &'static str = "GstEeVideoSink";
+    type Type = super::EeVideoSink;
+    type ParentType = gst_base::BaseSink;
+}
+
+impl ObjectImpl for EeVideoSink {
+    fn constructed(&self) {
+        self.parent_constructed();
+        self.obj().set_sync(false);
+    }
+
+    fn properties() -> &'static [glib::ParamSpec] {
+        static PROPERTIES: Lazy<Vec<glib::ParamSpec>> = Lazy::new(|| {
+            vec![
+                glib::ParamSpecString::builder("host")
+                    .nick("Host")
+                    .blurb("Destination host for UDP streaming")
+                    .default_value(Some("127.0.0.1"))
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
+                glib::ParamSpecUInt::builder("port")
+                    .nick("Port")
+                    .blurb("Destination UDP port")
+                    .minimum(0)
+                    .maximum(u16::MAX as u32)
+                    .default_value(5000)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
+                glib::ParamSpecString::builder("bind-address")
+                    .nick("Bind Address")
+                    .blurb("Local address to bind before connecting the UDP socket")
+                    .default_value(Some("0.0.0.0"))
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
+                glib::ParamSpecUInt::builder("mtu")
+                    .nick("MTU")
+                    .blurb("Maximum packet size including the compatibility-stream UDP payload")
+                    .minimum(256)
+                    .maximum(65_535)
+                    .default_value(1200)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
+                glib::ParamSpecUInt64::builder("packet-delay-ns")
+                    .nick("Packet Delay")
+                    .blurb("Delay inserted between transmitted packets in nanoseconds")
+                    .minimum(0)
+                    .maximum(u32::MAX as u64)
+                    .default_value(0)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
+                glib::ParamSpecUInt64::builder("frames-sent")
+                    .nick("Frames Sent")
+                    .blurb("Number of frames transmitted")
+                    .flags(glib::ParamFlags::READABLE)
+                    .build(),
+                glib::ParamSpecUInt64::builder("frames-dropped")
+                    .nick("Frames Dropped")
+                    .blurb("Number of frames dropped before transmit")
+                    .flags(glib::ParamFlags::READABLE)
+                    .build(),
+                glib::ParamSpecUInt64::builder("packet-anomalies")
+                    .nick("Packet Anomalies")
+                    .blurb("Number of transmit-side packetization or socket anomalies")
+                    .flags(glib::ParamFlags::READABLE)
+                    .build(),
+            ]
+        });
+
+        PROPERTIES.as_ref()
+    }
+
+    fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
+        let mut settings = self.settings.lock().expect("settings lock poisoned");
+
+        match pspec.name() {
+            "host" => settings.host = value.get().expect("host type checked upstream"),
+            "port" => settings.port = value.get().expect("port type checked upstream"),
+            "bind-address" => {
+                settings.bind_address = value.get().expect("bind-address type checked upstream")
+            }
+            "mtu" => settings.mtu = value.get().expect("mtu type checked upstream"),
+            "packet-delay-ns" => {
+                settings.packet_delay_ns = value.get().expect("packet-delay-ns type checked upstream")
+            }
+            _ => unreachable!("unknown property {}", pspec.name()),
+        }
+    }
+
+    fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
+        let settings = self.settings.lock().expect("settings lock poisoned");
+
+        match pspec.name() {
+            "host" => settings.host.to_value(),
+            "port" => settings.port.to_value(),
+            "bind-address" => settings.bind_address.to_value(),
+            "mtu" => settings.mtu.to_value(),
+            "packet-delay-ns" => settings.packet_delay_ns.to_value(),
+            "frames-sent" => self.stats.frames().to_value(),
+            "frames-dropped" => self.stats.dropped_frames().to_value(),
+            "packet-anomalies" => self.stats.packet_anomalies().to_value(),
+            _ => unreachable!("unknown property {}", pspec.name()),
+        }
+    }
+}
+
+impl GstObjectImpl for EeVideoSink {}
+
+impl ElementImpl for EeVideoSink {
+    fn metadata() -> Option<&'static gst::subclass::ElementMetadata> {
+        static METADATA: Lazy<gst::subclass::ElementMetadata> = Lazy::new(|| {
+            gst::subclass::ElementMetadata::new(
+                "EEVideo Sink",
+                "Sink/Video/Network",
+                "Transmits EEVideo compatibility streams over UDP",
+                "Codex",
+            )
+        });
+
+        Some(&*METADATA)
+    }
+
+    fn pad_templates() -> &'static [gst::PadTemplate] {
+        static PAD_TEMPLATES: Lazy<Vec<gst::PadTemplate>> = Lazy::new(|| {
+            let caps = SUPPORTED_CAPS
+                .parse::<gst::Caps>()
+                .expect("static sink caps must parse");
+            let template = gst::PadTemplate::new(
+                "sink",
+                gst::PadDirection::Sink,
+                gst::PadPresence::Always,
+                &caps,
+            )
+            .expect("sink pad template");
+            vec![template]
+        });
+
+        PAD_TEMPLATES.as_ref()
+    }
+}
+
+impl BaseSinkImpl for EeVideoSink {
+    fn start(&self) -> Result<(), gst::ErrorMessage> {
+        self.unlocked.store(false, Ordering::Relaxed);
+
+        let settings = self.settings.lock().expect("settings lock poisoned").clone();
+        let socket = UdpSocket::bind((settings.bind_address.as_str(), 0)).map_err(|err| {
+            gst::error_msg!(
+                gst::ResourceError::OpenWrite,
+                ["failed to bind {}:0: {}", settings.bind_address, err]
+            )
+        })?;
+
+        socket
+            .connect((settings.host.as_str(), settings.port as u16))
+            .map_err(|err| {
+                gst::error_msg!(
+                    gst::ResourceError::OpenWrite,
+                    ["failed to connect {}:{}: {}", settings.host, settings.port, err]
+                )
+            })?;
+
+        let mut state = self.state.lock().expect("state lock poisoned");
+        *state = Some(RunningState {
+            socket,
+            next_frame_id: 1,
+            negotiated_format: None,
+        });
+
+        Ok(())
+    }
+
+    fn stop(&self) -> Result<(), gst::ErrorMessage> {
+        self.state.lock().expect("state lock poisoned").take();
+        self.unlocked.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn render(&self, buffer: &gst::Buffer) -> Result<gst::FlowSuccess, gst::FlowError> {
+        if self.unlocked.load(Ordering::Relaxed) {
+            return Err(gst::FlowError::Flushing);
+        }
+
+        let settings = self.settings.lock().expect("settings lock poisoned").clone();
+        let packetizer = CompatPacketizer::new(settings.mtu as usize).map_err(|_| {
+            self.stats.record_drop();
+            self.stats.record_packet_anomaly();
+            gst::FlowError::Error
+        })?;
+
+        let mut state_guard = self.state.lock().expect("state lock poisoned");
+        let state = state_guard.as_mut().ok_or(gst::FlowError::Error)?;
+
+        let current_caps = self
+            .obj()
+            .static_pad("sink")
+            .and_then(|pad| pad.current_caps())
+            .ok_or(gst::FlowError::NotNegotiated)?;
+        let current_format =
+            parse_caps(current_caps.as_ref()).map_err(|_| gst::FlowError::NotNegotiated)?;
+
+        match state.negotiated_format {
+            Some(existing) if existing != current_format => {
+                self.stats.record_drop();
+                self.stats.record_packet_anomaly();
+                return Err(gst::FlowError::NotNegotiated);
+            }
+            None => state.negotiated_format = Some(current_format),
+            Some(_) => {}
+        }
+
+        let expected_len = current_format.payload_len().map_err(|_| {
+            self.stats.record_drop();
+            self.stats.record_packet_anomaly();
+            gst::FlowError::Error
+        })?;
+
+        let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
+        if map.as_slice().len() != expected_len {
+            self.stats.record_drop();
+            self.stats.record_packet_anomaly();
+            return Err(gst::FlowError::Error);
+        }
+
+        let timestamp = buffer.pts().map(|pts| pts.nseconds()).unwrap_or(0);
+        let frame = VideoFrame {
+            frame_id: state.next_frame_id,
+            timestamp,
+            width: current_format.width,
+            height: current_format.height,
+            pixel_format: current_format.pixel_format,
+            payload_type: PayloadType::Image,
+            data: map.as_slice().to_vec(),
+        };
+
+        let packets = packetizer.packetize(&frame).map_err(|_| {
+            self.stats.record_drop();
+            self.stats.record_packet_anomaly();
+            gst::FlowError::Error
+        })?;
+
+        for packet in packets {
+            state.socket.send(&packet).map_err(|_| {
+                self.stats.record_drop();
+                self.stats.record_packet_anomaly();
+                gst::FlowError::Error
+            })?;
+
+            if settings.packet_delay_ns > 0 {
+                thread::sleep(Duration::from_nanos(settings.packet_delay_ns));
+            }
+        }
+
+        state.next_frame_id = state.next_frame_id.wrapping_add(1);
+        self.stats.record_frame();
+
+        Ok(gst::FlowSuccess::Ok)
+    }
+
+    fn unlock(&self) -> Result<(), gst::ErrorMessage> {
+        self.unlocked.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn unlock_stop(&self) -> Result<(), gst::ErrorMessage> {
+        self.unlocked.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+}

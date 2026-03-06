@@ -1,0 +1,11 @@
+name: eevideo-spec
+title: "EEVideo"
+version: '0'
+prerelease: -alpha.1
+start_page: intro.adoc
+asciidoc:
+  attributes:
+    source-language: asciidoc@
+    table-caption: false
+nav:
+- modules/ROOT/nav.adoc

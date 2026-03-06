@@ -1,0 +1,17 @@
+site:
+  title: "Embedded Ethernet Video Protocols"
+  start_page: eevideo-spec::intro.adoc
+asciidoc:
+  extensions:
+  - "@deepsymmetry/asciidoctor-bytefield"
+  attributes:
+    page-pagination: ''
+content:
+  sources:
+  - url: https://gitlab.com/eevideo/spec.git
+    branches: HEAD
+ui:
+  bundle:
+    url: https://gitlab.com/eevideo/ui/-/jobs/artifacts/HEAD/raw/build/ui-bundle.zip?job=bundle-stable
+    # url: https://gitlab.com/antora/antora-ui-default/-/jobs/artifacts/HEAD/raw/build/ui-bundle.zip?job=bundle-stable
+    snapshot: true

@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-tools \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run protocol tests
+        run: cargo test -p eevideo-proto
+
+      - name: Build plugin workspace
+        run: cargo build --workspace
+
+      - name: Run default plugin tests
+        run: cargo test -p gst-plugin-eevideo
+
+  jetson-cross:
+    runs-on: ubuntu-24.04
+    if: ${{ vars.JETSON_SYSROOT_DIR != '' }}
+    env:
+      JETSON_SYSROOT_DIR: ${{ vars.JETSON_SYSROOT_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Cross build for Jetson Orin JetPack 6
+        run: cross/jetson-orin/build.sh "$JETSON_SYSROOT_DIR"
+

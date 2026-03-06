@@ -1,0 +1,41 @@
+# Ignore everything by default
+*
+
+# Allowed files
+!README.md
+!LICENSE
+!Dockerfile
+!.gitignore
+!go.mod
+!go.sum
+!*.go
+!*.yaml
+!*.yml
+
+# Allowed folders
+!cmd/
+!cmd/**/*.go
+!examples/
+
+# Ignore these common unwanted patterns
+**/.git
+**/.DS_Store
+**/.idea/
+**/.vscode/
+**/*.exe
+**/*.exe~
+**/*.dll
+**/*.so
+**/*.dylib
+**/*.test
+**/*.out
+**/*.log
+**/vendor/
+**/node_modules/
+**/bin/
+**/obj/
+**/dist/
+**/build/
+**/.terraform/
+**/terraform.tfstate*
+**/coverage.*

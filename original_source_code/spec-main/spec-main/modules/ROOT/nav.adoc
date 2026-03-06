@@ -1,0 +1,11 @@
+** xref:eevideo-spec::intro.adoc[]
+** xref:eevideo-spec::management.adoc[]
+*** xref:eevideo-spec::coap.adoc[]
+*** xref:eevideo-spec::registers.adoc[]
+*** xref:eevideo-spec::features.adoc[]
+*** xref:eevideo-spec::discovery.adoc[]
+*** xref:eevideo-spec::ipaddress.adoc[]
+** Streaming Protocols
+*** xref:eevideo-spec::stream.adoc[]
+** xref:eevideo-spec::license.adoc[]
+

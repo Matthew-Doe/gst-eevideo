@@ -1,0 +1,24 @@
+[package]
+name = "gst-plugin-eevideo"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+description = "Rust GStreamer plugin with eevideosrc and eevideosink elements"
+
+[lib]
+name = "gsteevideo"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+gst-tests = []
+
+[dependencies]
+eevideo-proto = { path = "../eevideo-proto" }
+glib.workspace = true
+gstreamer.workspace = true
+gstreamer-base.workspace = true
+once_cell.workspace = true
+

@@ -1,0 +1,12 @@
+verb: 0
+devicePath: "./devices"
+deviceName: ""
+streamNum: "stream0"
+destIP: ""
+destPort: 0
+delay: 10
+maxPacket: 1000
+imagePath: "./images"
+frameCount: 10
+scriptPath: "./scripts"
+scriptName: "test.py"

@@ -1,0 +1,21 @@
+= Management Protocol
+
+The Management Protocol is used by a host to monitor and configure a device.
+
+In the most limited case, EEVideo devices may not require management protocol support.  In a specific embedded system a device may power up and begin streaming a standard format with no interaction from the host.
+
+More common applications will find the need to configure the EEVideo camera and its stream parameters, query its capabilities and status, and/or trigger its captures.
+
+== Register Based Transactions
+All management functions for EEVideo are implemented as register transactions.  They are initiated with a request packet from the host to the device and concluded with a response packet from the device back to the host.
+
+=== Register Data Width
+All the registers are 32 bits (4 bytes) wide.  Not every register will use all 32 bits.
+
+
+=== Register Address Space
+All registers are mapped into a 32-bit register space.  Most devices will fit their registers in a small section of that map.
+
+The addresses are byte-based addresses for maximum compatibility.  Since each register is 4 bytes wide, the two least significant bits are 0b00 for each register address.
+
+

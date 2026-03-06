@@ -1,0 +1,659 @@
+= Device Features
+
+Optional features are described here.
+
+The process for discovering which features and how many of each are implemented in the device and how to find thier respective registers is described in the register map section.
+
+The following sections describe the 'spec' features that are standardized as part of this EEVidio Specification.  Each 'spec' feature has its own unique ID number and version.  The requirements for each feature may be updated independently from the full EEVideo Specification.
+
+Each feature must also specify how many address pointers are required to control and monitor that feature's functionality. The feature specification then details requirements of the register functionality at each of those pointer addresses.  The implmentation details for the feature functionality, and the actual register addresses are left to the developer.
+
+== System Features
+
+=== Identification Strings Feature
+The Identification Strings Feature provides pointers to registers containing strings that describe the device.
+
+Identification Strings
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x001      |
+|Version          |0x001      | 0.1
+|Pointer Count    |7          |
+|Bootstrap ID     |0x00100107 | (Max pointers)
+|Pointer 0        |String     | Manufacturer Name
+|Pointer 1        |String     | Device Model Name
+|Pointer 2        |String     | Device Version
+|Pointer 3        |String     | Serial Number
+|Pointer 4        |String     | Manufacturer Info
+|Pointer 5        |String     | User Defined Name
+|Pointer 6        |String     | Device Webpage (URL)
+|===
+
+A string pointer points to the first register of a variable length, null terminated string.
+
+==== Manufacturer Name
+The Manufacturer Name string describes the manufacturer of the device.  It is typically a static value.
+
+==== Device Model Name
+The Device Model Name describes the model name / number of the device.  It is typically a static value.  This model name may be used as part of mDNS service discovery.
+
+==== Device Version
+The Device Version string may describe the hardware and software version of the device.  It is typically a static value.
+
+==== Serial Number
+The Serial number string is a set of characters that should be unique for all devices with the same Model Name.  It is typically a static value.  The serial number may be used as part of mDND service discovery.
+
+==== Manufacturer Info
+The Manufacturer Info string may contain other information offered by the manufacturer.  It is typically a static value.
+
+==== User Defined Name
+The User Defined Name should be a string that can be updated by the user and stored in non-volatile memory so the user can identify the specific application of the device in their system.
+
+If implemented, the User Defined Name string SHALL hold 16 characters, including the null terminator.
+
+==== Device Webpage
+The Device Webpage string may contain a URL that points to a webpage or manual for the device.
+
+=== Register Detail Embedded File Feature
+An EEVideo device may offer structured metadata files containing additional information on the device registers.  These files are stored on the device.  They are typically compressed to conserve memory.  All the file registers are typically static.
+
+Embedded Register Detail File
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x002      |
+|Version          |0x001      | 0.1
+|Pointer Count    |1          |
+|Bootstrap ID     |0x00200101 |
+|Pointer 0        |File       | File Length/Name/Contents
+|===
+
+==== Register Detail File
+The Register Detail File pointer points to the first of a set of registers.  The number of registers depends on the name string length and the content data length plus one for the file length field.
+
+Register Detail File Registers
+[cols="h,1,6"]
+|===
+|Offset 0         |4 Bytes    | Lenth of file in bytes, not including the length or name registers.
+|Offset 1         |String     | File name and extension
+|Offset n+1       |Data Block | File contents
+|===
+
+The format of the file is specified by the extension and any schema information inside the file.  Formats for Register Detail Files are detailed in section TBD.
+
+=== Register Detail File URL Feature
+Register Detail Files may also be made available at URLs included as a Register Detail URL.
+
+Embedded Register Detail File
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x003      |
+|Version          |0x001      | 0.1
+|Pointer Count    |1          |
+|Bootstrap ID     |0x00300101 |
+|Pointer 0        |String     | URL for register detail File
+|===
+
+==== URL for Register Detail File
+URL string for file download.
+
+
+=== mDNS Discovery Feature
+The mDNS Discovery feature provides pointers to registers that configure and monitor the device's mDNS service discovery parameters.
+
+TBD
+
+=== NVM Backup Feature
+The NVM Backup Control feature provides pointers to registers with funtionality that stores and recalls specific blocks of registers to and from non-volitile memomory included in the device.
+
+TBD
+
+=== Command Script Feature
+The Command Script Feature provides pointers to registers with functionality to build and execute lists of register commands.  These lists may be used for initialization or swithing modes with a single register write from the host.
+
+TBD
+
+=== Watchdog / Heartbeat Feature
+The Watchdog / Heartbeat Feature provides pointers to registers with timer functionality intended to indicate the device is funtioning properly and reset the device if timeouts occur or communication with the host is lost.
+
+TBD
+
+=== Reset / Sleep Feature
+The Reset / Sleep Feature feature provides pointers to registers that provide functionality to reset internal device process and put the device in reduced functionality, lower-power modes.
+
+TBD
+
+=== Unsolicited Response Feature
+The Unsolicited Response Feature feature provides pointers to registers that support the ability for the device to deliver unsolicited read response packets to a host when specified events occur on the device.
+
+TBD
+
+=== Write Enable Feature
+
+=== AES Security Feature
+The AES Security Feature will require a successful secure public key challenge to be completed before a host can control or make configuration changes to the EEVideo device.
+
+This planned feature may not be fully defined in the EEVideo Specification V1.
+
+=== Custom Strings
+=== Custom Files
+=== Custom Registers
+=== Test Register Read/Write
+
+== Ethernet Features
+
+=== Ethernet Interface Feature
+The Ethernet Interface Feature provides pointers to registers containing configuration information about an Ethernet interface on the device.
+
+Ethernet Interface
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x101      |
+|Version          |0x001      | 0.1
+|Pointer Count    |4          |
+|Bootstrap ID     |0x10100104 | (Max pointers)
+|Pointer 0        |Reg 64     | Ethernet MAC Address
+|Pointer 1        |Reg 32     | Ethernet IP Address
+|Pointer 2        |Reg 32     | Ethernet Subnet Mask
+|Pointer 3        |Reg 32     | Ethernet Gateway Addr
+|Pointer 4        |String     | Name
+|===
+
+Registers larger than 32 bits are extended to the next (bits/32)-1 consecutive addresses following the pointer.
+
+==== Ethernet MAC Address
+The registers at the Ethernet MAC Address pointer contain a 48-bit MAC address for the Ethernet Interface.  Typically the MAC address is a unique static value assigned during manufacture.
+
+TBD Register table
+
+==== Ethernet IP Address
+The register at the Ethernet IP Address contains the IPv4 IP address used by the Ethernet Interface.  It may be 0 for an uninitialized device.  There are several options for IP address initialization described in the TBD section.
+
+==== Ethernet Subnet Mask
+The Ethernet Subnet Mask pointer points to a register containing the 32-bit IPv4 subnet mask for the Ethernet interface.  The subnet mask value may not be required for all devices.  It is useful for locating the local broadcast address.
+
+==== Ethernet Gateway Address
+The Ethernet gateway address pointer points to a register contining the 32-bit gateway address for the Ethernet interface.  The gateway address may not be required for all devices.  It is useful for more advanced networking features.
+
+=== Ethernet PHY Feature
+The Ethernet PHY feature offers pointers to values describing and controlling one Ethernet PHY connected to the device.  The device may implement multiple Ethernet PHY features.
+
+Ethernet PHY
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x102      |
+|Version          |0x001      | 0.1
+|Pointer Count    |3          |
+|Bootstrap ID     |0x10100103 | (Max pointers)
+|Pointer 0        |Reg 32     | Link Status
+|Pointer 1        |Reg 32     | PHY Capability
+|Pointer 2        |Reg 32     | SMI Port/Address
+|===
+
+==== Link Status
+TBD Register table
+
+==== PHY Capability
+TBD Register table
+
+==== SMI Port/Address
+TBD Register table
+
+=== Video Stream Feature
+
+Video Stream
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x103      |
+|Version          |0x001      | 0.1
+|Pointer Count    |14         |
+|Bootstrap ID     |0x1040010E | (Max pointers)
+|Pointer 0        |Reg 32     | Max Packet Size
+|Pointer 1        |Reg 32     | Delay
+|Pointer 2        |Reg 64     | Dest MAC Addr
+|Pointer 3        |Reg 32     | Dest IP
+|Pointer 4        |Reg 32     | Dest Port
+|Pointer 5        |Reg 32     | Source Port
+|Pointer 6        |Reg 32     | Partial Check
+|Pointer 7        |Reg 32     | Width
+|Pointer 8        |Reg 32     | Height
+|Pointer 9        |Reg 32     | Pixel Format
+|Pointer 10       |Reg 32     | Acquisition Mode
+|Pointer 11       |Reg 32     | X Offset
+|Pointer 12       |Reg 32     | Y Offset
+|Pointer 13       |Reg 32     | Test Pattern
+|===
+
+==== Max Packet Size
+==== Delay
+==== Dest MAC Addr
+==== Dest IP
+==== Dest Port
+==== Source Port
+==== Partial Check
+TBD
+==== X Pixels
+==== Y Lines
+==== Pixel Format
+==== Acquisition Mode (on off)
+==== X Offset
+==== Y Offset
+==== Test Pattern
+Also need ability to fire test packet.
+
+=== Packet Resend Function
+EEVideo devices may implement functionality to re-transmit video stream packets that may have been lost or damaged before reception by the host.
+
+These re-sent packets must be requested by the host using the registers pointed to by the Packet Resend Function.
+
+To enable packet re-transmission, the EEVideo device must implement memory buffers to retain packet data long enough for the host to verify reception and request re-transmission as necessary.
+
+The response packet to the Resend request shall include the Packet Availability field, indicating if the packet data was available.
+
+Packet Resend
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x104      |
+|Version          |0x001      | 0.1
+|Pointer Count    |4          |
+|Bootstrap ID     |0x10400104 | (Max pointers)
+|Pointer 0        |Reg 32     | Video Channel
+|Pointer 1        |Reg 32     | Block ID
+|Pointer 2        |Reg 32     | Packet ID
+|Pointer 3        |Reg 32     | Packet Availability
+|===
+
+
+==== Video Channel
+
+==== Block ID
+
+==== Packet ID
+
+==== Packet Availability
+
+=== RoCE Feature
+TBD Pointer table
+
+== Timing Features
+
+=== TimeStamp Feature
+Timestamp
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x201      |
+|Version          |0x001      | 0.1
+|Pointer Count    |4          |
+|Bootstrap ID     |0x20400104 | (Max pointers)
+|Pointer 0        |Reg 32     |
+|Pointer 1        |Reg 32     |
+|Pointer 2        |Reg 64     |
+|===
+
+=== NTP Feature
+EEVideo devices may implement Network Time Protocol (NTP) for Time Stamp synchronization.
+
+Network Time Protocol
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x202      |
+|Version          |0x001      | 0.1
+|Pointer Count    |3          |
+|Bootstrap ID     |0x20200103 | (Max pointers)
+|Pointer 0        |Reg 32     | NTP Configuration
+|Pointer 1        |Reg 32     | NTP Status
+|Pointer 2        |Reg 32     | NTP Server IP Address
+|===
+
+TBD pointer descriptions
+
+=== PTP (IEEE-1588) Feature
+EEVideo devices may implement an IEEE-1588 Precision Time Protocol (PTP) for higher precision Time Stamp synchronization
+
+Precision Time Protocol
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x203      |
+|Version          |0x001      | 0.1
+|Pointer Count    |3          |
+|Bootstrap ID     |0x20300103 | (Max pointers)
+|Pointer 0        |Reg 32     | PTP Configuration
+|Pointer 1        |Reg 32     | PTP Status
+|Pointer 2        |Reg 32     | PTP Server IP Address
+|===
+
+TBD pointer descriptions
+
+=== GPS Synchronization Feature
+
+EEVideo devices may implement an interface to synchronize the time stamp value with signals from a GPS receiver.
+
+GPS Synchronization
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x204      |
+|Version          |0x001      | 0.1
+|Pointer Count    |3          |
+|Bootstrap ID     |0x20400103 | (Max pointers)
+|Pointer 0        |Reg 32     | GPS Configuration
+|Pointer 1        |Reg 32     | GPS Status
+|Pointer 2        |Reg 32     | GPS UART port
+|===
+
+TBD pointer descriptions
+
+=== Timer / Trigger Feature
+
+EEVideo devices may implement timers and triggers driven by the time stamp value.
+
+Timer / Trigger
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x205      |
+|Version          |0x001      | 0.1
+|Pointer Count    |6          |
+|Bootstrap ID     |0x20500106 | (Max pointers)
+|Pointer 0        |Reg 32     | Timer Configuration
+|Pointer 1        |Reg 32     | Timer Status
+|Pointer 2        |Reg 64     | Timer stamp A
+|Pointer 3        |Reg 64     | Timer stamp B
+|Pointer 4        |Reg 64     | Timer stamp Out
+|Pointer 5        |Reg 32     | Timer I/O ports
+|===
+
+TBD pointer descriptions
+
+== Peripheral Features
+
+=== I2C Controller Feature
+
+The I2C Controller Feature provides a bridge to manage devices on an I2C bus.  This can be useful for interfacing to MIPI video devices which typically provide an I2C port for management.
+
+The controller can manage multiple I2C devices on the same bus if they are assigned unique addresses.
+
+.I2C Controller Declaration
+[width=75%]
+[cols="h,1,4"]
+|===
+|Feature ID       |0x301      | I2C Controller
+|Version          |0x001      | 0.1
+|Pointer Count    |2          |
+|Bootstrap ID     |0x30100102 | (Max pointers)
+|Pointer 0        |Reg Block  | I2C Peripheral Block
+|Pointer 1        |String     | Description
+|===
+
+==== I2C Controller Pointers
+
+The I2C controller peripheral feature offers 2 pointers.  Pointer 0 points to the register block that manages the controller.  Pointer 1 points to a string that describes the function of the Controller in a specific devices.
+
+==== I2c Controller Registers
+Pointer 0 points to a block of 4 contiguous registers.
+
+===== Pointer 0 - Register Offset 0 - Status
+.I2C Status Register
+[cols="8,4,4,8,8"]
+|===
+|Unused |Rate | Max | TxLevel | RxLevel
+|===
+
+.I2C Rx FIFO Register Fields
+[cols="1h,1,| Rx FIFO Rx Ack     | RW     | 23 |  1 | Reports the Ack bit state captured after the corresponding byte
+1,1,6"]
+|===
+| Field        |Access  |msb |Len |Description
+
+| Rate         | RO     | 23 |  4 | 0x1=100kbps, 0x4=400kbps, 0x8=1Mbps
+| MaxLevel     | RO     | 19 |  4 | 1=4, 2=8, 3=16, 4=32, 5=64, 6=128, 7=255
+| TxLevel      | RO     | 15 |  8 | Current Entries in Tx FIFO (decrements automatically)
+| RxLevel      | RO     |  7 |  8 | Current Entries in Rx FIFO (only decrements after Rx FIFO advance)
+|===
+
+
+===== Pointer 0 - Register Offset 4 - Config
+.I2C Status Register
+[cols="10,1"]
+|===
+|Unused |Reset
+|===
+
+.I2C Rx FIFO Register Fields
+[cols="1h,1,1,1,6"]
+|===
+| Field   |Access  |msb |Len |Description
+
+| Reset   | RWSC   |  0 |  1 | Resets I2C controller and FIFOs, self clearing
+|===
+===== Pointer 0 - Register Offset 8 - Tx Data FIFO
+
+.I2C Tx FIFO Register Field Map
+[cols="10,2,2,2,8"]
+|===
+|Unused | Stop | Hold | Ack | Data
+|===
+
+.I2C Tx FIFO Register Fields
+[cols="1h,1,1,1,10"]
+|===
+| Field   |Access  |msb |Len |Description
+
+| Stop    | WO     | 10 |  1 | '1' adds a Stop condition after the data byte
+| Hold    | WO     |  9 |  1 | '1' holds the bus for sending the next byte
+| Ack     | WO     |  8 |  1 | Ack value to set after data byte
+| Data    | WO     |  7 |  8 | Data byte to transfer
+|===
+
+All I2C transactions are initiated, extended, and terminated with writes to the Tx Data FIFO register.
+
+I2C is a byte based protocol with an acknowledge bit state and bus state indications between the data/ack transfers.
+
+This I2C controller operates by specifying which bus state is required after each data/ack transfer.  This avoids the extra controller write transactions required in other controller types to generate specific bus states.
+
+There are 3 possible states at the end of each data/ack transfer; stopped, holding, and restart ready.  These states are not specifically identified in the I2C specification.  They are implied by the SCL/SDA state transitions shown in I2C timing diagrams.
+
+All transactions should begin from the stopped state.  I2C specifies a start sequence that precedes each transaction.  This controller automatically inserts a start is required before sending data/ack if the bus is not in the holding state.  No start (or repeat start) indications are required by the controller from the host.
+
+After each byte is sent, the controller must know which state to enter after sending data/ack.
+
+If the "stop" bit is set, the controller will add a stop condition after the data/ack transfer.
+
+If the "hold" bit is set, the controller will leave the bus ready to begin the next data/ack transfer of the transaction.
+
+If neither "stop" or "hold" bits are set, the controller will leave the bus ready for a repeated start condition before the next data/ack transfer.  The controller will automatically generate a repeated start when the bus is in the holding state before it begins the next data/ack transfer.
+
+Reading bytes from the I2C bus is also initiated with a write to the Tx Data FIFO.  The user must specify 0xFF for the data field to allow SDA to be pulled high for the entire data phase so the I2C peripheral can drive selected bits low.
+
+The Ack bit must also be specified for each transfer.  It should be set to '1' if the controller should expect an ack indication from the I2C peripheral.  Ack should be set to 0 if the I2C peripheral is expecting a NAck from the controller or 1 in certain cases where the I2C peripheral expects a NAck for the last byte of a read sequence.
+
+.Example: Write two 16-bit values using a 16-bit I2c register address
+[cols="2,2,2,2,20"]
+|===
+|Stop | Hold |Ack | Data |Description
+
+| 0   | 1    | 1  | pw   | Send 7-bit Device address + write mode bit (pw). Start indication is generated automatically. Hold the bus.
+| 0   | 1    | 1  | a1   | Send register address MSB (a1). Hold the bus.
+| 0   | 1    | 1  | a2   | Send register address LSB (a2). Hold the bus.
+| 0   | 1    | 1  | v1   | Send first byte of first value (v1). Hold the bus.
+| 0   | 1    | 1  | v2   | Send second byte of first value (v2). Hold the bus.
+| 0   | 1    | 1  | v3   | Send first byte of second value (v3). Hold the bus.
+| 1   | 0    | 1  | v4   | Send second byte of second value (v4). Issue stop.
+|===
+
+.Example: Read a 16-bit value using a 16-bit I2c register address with repeated start
+[cols="2,2,2,2,20"]
+|===
+|Stop | Hold |Ack | Data |Description
+
+| 0   | 1    | 1  | pw   | Send 7-bit Device address + write mode bit (pw). Start indication is generated automatically. Hold the bus.
+| 0   | 1    | 1  | a1   | Send register address MSB (a1).  Accept Ack bit. Hold the bus.
+| 0   | 0    | 1  | a2   | Send register address LSB (a2). Accept Ack bit. Prepare bus for repeated start.
+| 0   | 1    | 1  | pr   | Send 7-bit Device address + read mode bit. Accept Ack bit. Restart indication is generated automatically. Hold the bus.
+| 0   | 1    | 0  | 0xFF | Accept byte 1 from peripheral. Ack 0 to peripheral. Hold the bus.
+| 1   | 0    | 1  | 0xFF | Accept byte 2 from peripheral. NAck 1 to peripheral. Issue stop.
+|===
+
+===== Pointer 0 - Register Offset 0xC - Rx Data FIFO
+
+This I2C controller collects the bits from the SDA net on SCL edges for each byte transmission initiated by a write to the Tx Data FIFO register.
+
+It does not matter if the transfer is a read or write access. The data/ack are captured for each transfer.  The user/host must correlate the Tx/Rx FIFO entries.  It is best to make sure the Rx FIFO is empty (or Reset) before beginning a new transaction.  The Rx FIFO has limited depth.  It is best to collect the data before the FIFO overflows.  FIFO depth and fullness are available in the Status register.
+
+For write data transfers to the I2C device, the Ack bit reported by Rx Data FIFO should be 0.  This indicates the device accepted that data byte.  The Rx Data field should match the Tx Data field written to the Tx Data FIFO.
+
+For read data transfers from the I2C device, the Rx Data field will contain the byte delivered by the device.  The Ack bit should match the Ack bit written to the Tx Data FIFO.
+
+The Rx Data FIFO register is protected from random reads that could corrupt the data.  Some hosts might unnecessarily read all registers just to see what they contain or which registers respond.  To "pop" a value and advance to the next entry in Rx Data FIFO, the host must either issue a write transaction to the Rx Data FIFO register, or use the CoAP "FIFO Read" access option for the read.  The CoAP option is preferred if the EEV Device supports the "FIFO Read" option. The write value does not matter if using the "Advance on Write" method.
+
+.I2C Rx FIFO Register Field Map
+[cols="14,2,8"]
+|===
+|Unused | Ack | Data
+|===
+
+.I2C Rx FIFO Register Fields
+[cols="2h,1,1,1,6"]
+|===
+|Field    |Access  |msb |Len |Description
+
+| Ack     | RO-AoW |  8 |  1 | Reports the Ack bit state captured after the corresponding byte
+| Data    | RO-AoW |  7 |  8 | Reports the byte value captured from the I2C bus for each byte transfer (read and write)
+|===
+
+===== Pointer 1 - Register Offset 0 - Description
+
+Pointer to the first byte of a null terminated string containing an implementation specific description of this I2C Controller.  The description could indicate the corresponding MIPI port.
+
+=== SPI Controller Feature
+The SPI Controller Feature provides a bridge to manage devices on a SPI bus.  This can be used to deliver system updates to SPI Flash memories containing FPGA and Micro-controller firmware.
+
+The controller can manage multiple SPI devices on the same bus using multiple chip select outputs.
+
+
+.SPI Controller
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x302      |
+|Version          |0x001      | 0.1
+|Pointer Count    |2          |
+|Bootstrap ID     |0x30200102 | (Max pointers)
+|Pointer 0        |Reg 32     | Config
+|Pointer 1        |Reg 32     | Cont
+|Pointer 2        |Reg 32     | SPI Tx Buffer
+|Pointer 3        |Reg 32     | SPI Rx Buffer
+|===
+
+TBD pointer descriptions
+
+=== UART Controller Feature
+
+UART Controller
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x303      |
+|Version          |0x001      | 0.1
+|Pointer Count    |4          |
+|Bootstrap ID     |0x30300104 | (Max pointers)
+|Pointer 0        |Reg 32     | UART Configuration
+|Pointer 1        |Reg 32     | UART Status
+|Pointer 2        |Reg 32     | UART Tx Buffer
+|Pointer 3        |Reg 32     | UART Rx Buffer
+|===
+
+TBD pointer descriptions
+
+=== SMI (MDIO/MDC) Controller Feature
+The SMI Controller Feature offers pointers to SMI (MDIO/MDC) controller registers.  Presumably the SMI controller is connected to one or more Ethernet PHYs.
+
+SMI Controller
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x304      |
+|Version          |0x001      | 0.1
+|Pointer Count    |4          |
+|Bootstrap ID     |0x30400104 | (Max pointers)
+|Pointer 0        |Reg 32     | SMI Configuration
+|Pointer 1        |Reg 32     | SMI Status
+|Pointer 2        |Reg 32     | SMI Tx Buffer
+|Pointer 3        |Reg 32     | SMI Rx Buffer
+|===
+
+TBD pointer descriptions
+
+=== CAN Controller Feature
+
+TBD pointer table
+
+TBD pointer descriptions
+
+=== PWM Port
+
+TBD pointer table
+
+TBD pointer descriptions
+
+=== GPIO port
+EEVideo devices may implement register-driven GPIO pins.
+
+GPIO Controller
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0x307      |
+|Version          |0x001      | 0.1
+|Pointer Count    |4          |
+|Bootstrap ID     |0x30700104 | (Max pointers)
+|Pointer 0        |Reg 32     | GPIO Port Config
+|Pointer 1        |Reg 32     | GPIO Direction
+|Pointer 2        |Reg 32     | GPIO In
+|Pointer 3        |Reg 32     | GPIO Out
+|===
+
+TBD pointer table
+
+== Custom Features
+
+There will be application requirements that do not fit any of the specified EEVideo features.
+
+Custom features may be implemented, included in the Feature Manifest, and further defined in Register Detail Files.
+
+Custom features shall be identified by a Feature ID value >= 0x800 and < 0x900 included in their Bootstrap ID register.
+
+== Feature Markers
+
+Feature Markers offer additional non-feature related parameters in the Feature Manifest.
+
+=== End of Features Marker
+
+The End of Features Bootstrap ID must be the last entry in the Feature Manifest.  It indicates to the host there are no additional features implemented in the device.
+
+End of Features
+[width=75%]
+[cols="h,1,6"]
+|===
+|Feature ID       |0xFFF      |
+|Version          |0x001      | 0.1
+|Pointer Count    |4          |
+|Bootstrap ID     |0xFFF00102 | (Max pointers)
+|Pointer 0        |Reg 32     | Last Static ROM Address
+|Pointer 1        |Reg 32     | Last Register Address
+|===
+
+==== Last Static ROM Address
+The Last Static ROM Address Pointer points to the highest number register in the static ROM space.  This last register may not contain any real data.  It indicates to the host that registers below this address are not expected to change and there is typically no reason to read them again.  In networking terms these register values are cacheable.
+
+==== Last Register Address
+The Last Register Address Pointer points to the highest number register in the device.

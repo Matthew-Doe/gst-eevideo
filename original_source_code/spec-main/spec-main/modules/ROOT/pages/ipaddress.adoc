@@ -1,0 +1,23 @@
+= IP Address Configuration
+
+To communicate on an Ethernet IP network, each device must have an IP address that is unique on its subnet.  On simple embedded networks without routers, the address must also belong to the same subnet as the host.
+
+It is not typically practical to deliver cameras pre-configured with a proper IP address for their intended application. Until a proper address is established, a host cannot communicate with the device to configure an address with the standard register write process.
+
+The EEVideo specification supports several options for configuring an IP network address.
+
+== Persistent Static IP
+
+TBD
+
+== DHCP
+
+TBD
+
+== Link Local (ZeroConf)
+
+TBD
+
+== Multicast Register Configuration
+
+TBD

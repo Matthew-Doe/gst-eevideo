@@ -1,0 +1,71 @@
+# .goreleaser.yaml
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    # - go generate ./...
+
+project_name: eevid
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64   # enables arm64 for darwin (macOS Apple Silicon) + linux (arm64/RPi)
+    ignore:
+      - goos: windows
+        goarch: arm64   # Exclude Windows arm64
+    main: ./  # change to ./cmd/eevid if your main.go is in a subfolder
+    binary: eevid
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Tag }}_
+      {{- if eq .Os "darwin" }}macOS
+      {{- else }}{{ .Os }}
+      {{- end }}_{{ .Arch }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - src: README*
+        dst: .
+      - src: LICENSE*
+        dst: .     # if you have a LICENSE file
+      - src: eevid.yaml
+        dst: .
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+# changelog:
+  # sort: asc
+  # format: "{{ .SHA }}: {{ .Message }}"
+  # filters:
+  #   exclude:
+  #     - '^docs?:'
+  #     - '^test:'
+  #     - '^ci:'
+  #     - '^chore:'
+  #     - '^build:'
+  #     - Merge
+
+#release:
+  # GitLab auto-detected in CI
+
+dockers:
+  - goos: linux
+    goarch: amd64
+    image_templates:
+      - "registry.gitlab.com/eevideo/eevid:{{ .Tag }}"
+      - "registry.gitlab.com/eevideo/eevid:latest"

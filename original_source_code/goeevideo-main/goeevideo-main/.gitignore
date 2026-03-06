@@ -1,0 +1,34 @@
+# Ignore everything by default
+*
+
+# Now explicitly allow the files we want to keep
+!*.go
+!go.mod
+!go.sum
+!.gitignore
+!README.md
+!LICENSE
+!yaml/
+
+# Ignore these common unwanted patterns even in allowed files
+**/.git
+**/.DS_Store
+**/.idea/
+**/.vscode/
+**/*.exe
+**/*.exe~
+**/*.dll
+**/*.so
+**/*.dylib
+**/*.test
+**/*.out
+**/*.log
+**/vendor/
+**/node_modules/
+**/bin/
+**/obj/
+**/dist/
+**/build/
+**/.terraform/
+**/terraform.tfstate*
+**/coverage.*

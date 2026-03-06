@@ -1,0 +1,266 @@
+= Stream Protocol
+:imagesdir: ../images
+:outdir: ./
+
+
+== Stream Protocol Introduction
+
+== Stream Packets
+
+=== Stream Packet Header
+
+==== Packet Format
+* Start of Frame Packet
+* Pixel Data Packet
+* End of Frame Packet
+* generic data, h.264 multi-part data, genDC data?
+
+.Data Packet Header Size Options
+[cols="2h,2,1,1,2,2,1,1"]
+|===
+| Packet Fmt    |Description  |Fmt Bytes| Flag Bytes | Frame ID Bytes | Packet ID Bytes | Additional Bytes| Total
+| 00000110 0x06 |SoF  Short   | 1       | 0          | 3  0-16M       | 4  0-4B         | 16              | 24
+| 00001010 0x0A |SoF  Medium  | 1       | 1          | 6  0-2T        | 8               | 24              | 40
+| 00001101 0x0D |SoF  Long    | 1       | 3          | 8              | 8               | 32              | 52
+| 00010010 0x12 |Data Short   | 1       | 0          | 3              | 4               | 0               |  8
+| 00010100 0x14 |Data Medium  | 1       | 1          | 6              | 8               | 0               | 16
+| 00010101 0x15 |Data Long    | 1       | 3          | 8              | 8               | 0               | 20
+| 00000010 0x02 |EoF  Short   | 1       | 0          | 3              | 4               | 0               |  8
+| 00000100 0x04 |EoF  Medium  | 1       | 1          | 6              | 8               | 0               | 16
+| 00000101 0x05 |EoF  Long    | 1       | 3          | 8              | 8               | 0               | 20
+|===
+
+.SoF Fields
+[cols="2h,2,1,2,2,2,2,1"]
+|===
+| Packet Fmt    |Description  |Pix Fmt  | X Y Res    | TimeStamp  | X Y Off   | X Y Pad  | Total
+| 00000110 0x06 |SoF  Short   | 2       | 2*2 0-65k  | 6 48 bits  | 2*2 0-65k | 0        | 16
+| 00001010 0x0A |SoF  Medium  | 2       | 4*2 0-4B   | 8  64 bits | 2*2       | 1*2 0-255| 24
+| 00001101 0x0D |SoF  Long    | 4       | 4*2        | 8  64 bits | 4*2       | 1*2      | 32
+|===
+
+// (defattrs :hex {:font-family "Source Code Pro", :font-size 10})
+// (defattrs :plain {:font-family "Source Code Pro", :font-size 10})
+// (defattrs :vertical [:plain {:writing-mode "vertical-rl"}])
+// (def column-labels (mapv #(number-as-hex % 2) (range 32)))
+// (def left-margin 44)
+// (def row-height 26)
+// (def font-family "Source Code Pro")
+// (draw-bottom)
+
+==== Pixel Format
+* Bits Per Pixel  4 bits 2-32 bits per pixel
+* Color Space     4 bits 16 options
+  ** Mono
+  ** RGB
+  ** YUV4:4:4
+  ** YUV4:2:2
+
+==== Flags
+* Resend Packet
+* Previous block dropped?
+* Device specific
+* Transmit flag?
+
+==== Frame ID
+
+==== Packet ID
+
+
+
+== Start of Frame Packet
+* payload type specific - payload type
+* timestamp
+* pixel format
+* frame format field_id, field_count?
+* size x
+* size y
+* offset x
+* offset y
+* padding x
+* padding y
+
+.Start of Frame Short
+[bytefield, target=sofshort, format=svg]
+....
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def box-width 16)
+(draw-column-headers)
+  (draw-box "PT = 0x06" {:span 8} )
+  (draw-box "Frame ID" {:span 24})
+  (draw-box "Packet ID" {:span 32})
+  (draw-box "Time Stamp ms" {:span 32})
+  (draw-box "Time Stamp ls" {:span 16})
+  (draw-box "Pixel Format" {:span 16})
+  (draw-box "Size X" {:span 16})
+  (draw-box "Size Y" {:span 16})
+  (draw-box "Offset X" {:span 16})
+  (draw-box "OffSet Y" {:span 16})
+....
+
+
+.Start of Frame Medium
+[bytefield, target=sofmed, format=svg]
+....
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def box-width 16)
+(draw-column-headers)
+  (draw-box "PT = 0x0A" {:span 8} )
+  (draw-box "Flags" {:span 8} )
+  (draw-box "Frame ID (ms)" {:span 16})
+  (draw-box "Frame ID (ls)" {:span 32})
+  (draw-box "Packet ID (ms)" {:span 32})
+  (draw-box "Packet ID (ls)" {:span 32})
+  (draw-box "Time Stamp ms" {:span 32})
+  (draw-box "Time Stamp ls" {:span 32})
+  (draw-box "Pixel Format" {:span 16})
+  (draw-box "Pad X" {:span 8})
+  (draw-box "Pad Y" {:span 8})
+  (draw-box "Size X" {:span 32})
+  (draw-box "Size Y" {:span 32})
+  (draw-box "Offset X" {:span 16})
+  (draw-box "OffSet Y" {:span 16})
+....
+
+.Start of Frame Long
+[bytefield, target=soflong, format=svg]
+....
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def box-width 16)
+(draw-column-headers)
+  (draw-box "PT = 0x0D" {:span 8} )
+  (draw-box "Flags" {:span 24} )
+  (draw-box "Frame ID (ms)" {:span 32})
+  (draw-box "Frame ID (ls)" {:span 32})
+  (draw-box "Packet ID (ms)" {:span 32})
+  (draw-box "Packet ID (ls)" {:span 32})
+  (draw-box "Time Stamp ms" {:span 32})
+  (draw-box "Time Stamp ls" {:span 32})
+  (draw-box "Pixel Format" {:span 32})
+  (draw-box "Pad X" {:span 16})
+  (draw-box "Pad Y" {:span 16})
+  (draw-box "Size X" {:span 32})
+  (draw-box "Size Y" {:span 32})
+  (draw-box "Offset X" {:span 32})
+  (draw-box "OffSet Y" {:span 32})
+....
+
+== Pixel Data Packet
+* Size of Header  4, 4-64 bytes 0.5 bytes
+* Packet type 4, 16 packet type options 0.5 bytes
+* Frame ID 24 bits 3 bytes
+* Packet ID 32 bits 4 bytes == 8 Bytes minimum
+
+Data Packet Header Size Options
+[width=50%]
+[cols="h,1,1,1,1"]
+|===
+|Size    | Packet Fmt  | Flag Bits  | Frame ID Bits | Packet ID bits
+
+|8       | 1           | 0          | 3 (24 bit)    | 4 (32 bit)
+|16      | 1           | 1          | 6 (48 bit)    | 8 (64 bit)
+|20      | 1           | 3          | 8 (64 bit)    | 8 (64 bit)
+|===
+
+.Pixel Data Short
+[bytefield, target=datashort, format=svg]
+....
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def box-width 16)
+(draw-column-headers)
+  (draw-box "PT = 0x102" {:span 8} )
+  (draw-box "Frame ID" {:span 24})
+  (draw-box "Packet ID" {:span 32})
+  (draw-gap "Pixel Data")
+  (draw-bottom)
+....
+
+
+.Pixel Data Medium
+[bytefield, target=datamed, format=svg]
+....
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def box-width 16)
+(draw-column-headers)
+  (draw-box "PT = 0x104" {:span 8} )
+  (draw-box "Flags" {:span 8} )
+  (draw-box "Frame ID (ms)" {:span 16})
+  (draw-box "Frame ID (ls)" {:span 32})
+  (draw-box "Packet ID (ms)" {:span 32})
+  (draw-box "Packet ID (ls)" {:span 32})
+  (draw-gap "Pixel Data")
+  (draw-bottom)
+....
+
+.Pixel Data Long
+[bytefield, target=datalong, format=svg]
+....
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def box-width 16)
+(draw-column-headers)
+  (draw-box "PT = 0x105" {:span 8} )
+  (draw-box "Flags" {:span 24} )
+  (draw-box "Frame ID (ms)" {:span 32})
+  (draw-box "Frame ID (ls)" {:span 32})
+  (draw-box "Packet ID (ms)" {:span 32})
+  (draw-box "Packet ID (ls)" {:span 32})
+  (draw-gap "Pixel Data")
+  (draw-bottom)
+....
+
+== End of Frame Packet
+* Frame ID
+* Packet ID
+
+.End of Frame Short
+[bytefield, target=eofshort, format=svg]
+....
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def box-width 16)
+(draw-column-headers)
+  (draw-box "PT = 0x02" {:span 8} )
+  (draw-box "Frame ID" {:span 24})
+  (draw-box "Packet ID" {:span 32})
+....
+
+
+.End of Frame Medium
+[bytefield, target=eofmed, format=svg]
+....
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def box-width 16)
+(draw-column-headers)
+  (draw-box "PT = 0x04" {:span 8} )
+  (draw-box "Flags" {:span 8} )
+  (draw-box "Frame ID (ms)" {:span 16})
+  (draw-box "Frame ID (ls)" {:span 32})
+  (draw-box "Packet ID (ms)" {:span 32})
+  (draw-box "Packet ID (ls)" {:span 32})
+....
+
+.End of Frame Long
+[bytefield, target=eoflong, format=svg]
+....
+(def column-labels (mapv #(number-as-hex % 2) (range 32)))
+(def boxes-per-row 32)
+(def box-width 16)
+(draw-column-headers)
+  (draw-box "PT = 0x05" {:span 8} )
+  (draw-box "Flags" {:span 24} )
+  (draw-box "Frame ID (ms)" {:span 32})
+  (draw-box "Frame ID (ls)" {:span 32})
+  (draw-box "Packet ID (ms)" {:span 32})
+  (draw-box "Packet ID (ls)" {:span 32})
+....
+
+== Full Frame Single Packet
+
+TBD

@@ -1,0 +1,18 @@
+# Binaries
+eevlark
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Temp files
+tmp/
+*.tmp
+*.swp
+dist/
+
+# Go-specific
+vendor/
+go.work
+go.work.sum

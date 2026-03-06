@@ -1,0 +1,47 @@
+= Device Discovery
+
+Device discovery may not be required for all EEVideo systems.  Some systems may preconfigure their cameras, controllers, and networks so they all know how to communicate on power up without any additional configuration.
+
+Other systems may use off-the-shelf EEVideo cameras delivered with a standard configuration from the factory or use devices that set their own dynamic IP addresses using DHCP or ZeroConf protocols. In these cases and many others, a method of searching the network for cameras is helpful.
+
+== CoAP Multicast Discovery
+
+EEVideo leverages the Multi-cast Dicovery features alredy specified by the Constrained Application Protocol (CoAP RFC7252) using the Constrained RESTful Environments (CoRE) Link Format (RFC6690) .  These protocols work together to build a standard method to find specific devices and services on Ethernet networks.
+
+== Request Implementation
+Each discovery-capable EEVideo device shall acknowledge request packets with the following parameters.
+
+=== Discovery IP Destination Address
+EEVideo devices supporting Device Discovery shall monitor the standard CoAP IPv4 multicast address: 224.0.1.187.
+
+=== Discovery Destination Port
+EEVideo devices supporting Device Discovery shall open the standard CoAP UDP port: 5683.
+
+=== Discovery URL
+EEVideo devices supporting Device Discovery shall respond to GET requests with the following URI options.
+
+.Discovery Request Options
+[width=50%]
+[cols="h,8"]
+|===
+|Field     |String         |Description
+
+| Uri-Path | ".well-known" | Specifies the well-known locations scheme, RFC5785
+| Uri-Path | "core"        | Specifies the CoRE Link Format, RFC6690
+| query    | "rt=eev.cam"  | Specifies the EEVideo Camera resource type (a requested CoRE Parameter Resource Type)
+| query    | "if=eev.reg"  | Specifies the EEVideo Register based service type (a requested CoRE Parameter Link Target Attribute
+)
+|===
+
+== Response Implementation
+
+=== Discovery Response Destination Fields
+EEVideo devices supporting Device Discovery shall deliver responses to the MAC address, IP address, and UDP port contained in the source fields of the request packet headers.  These fields are included in the header destination fields of the CoAP UDP IPv4 acknowledge packet.
+
+=== Discovery Response Source Fields
+EEVideo devices supporting Device Discovery shall deliver responses with their MAC address, IP address, and CoAP UDP port in the source fields of the CoAP UDP IPv4 acknowledge packet.
+
+
+=== Discovery Response Payload
+EEVideo devices supporting Device Discovery may include the 32 bit value of register 0 in the Payload of a Piggybacked Response.
+This supports the default Binary Address option = 0 in the GET request

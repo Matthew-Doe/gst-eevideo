@@ -1,0 +1,293 @@
+= CoAP Based Register Access
+EEVideo Management leverages The Constrained Application Protocol (CoAP) packet formats and transaction models for control and status communication between hosts and devices.
+
+Implementing an established standard provides several benefits over creating an ad-hoc protocol:
+
+* Mature, tested protocols
+* Detailed specification to improve implementation compatibility
+* Range of existing options that may be implemented with limited spec development
+** Security features
+** Proxy features
+** Optional alternate interfaces
+* Simplified integration with other protocol compliant services
+* Source code libraries already available for a wide range of computer languages and systems
+* Existing standardized port numbers and service strings for maximum Ethernet IP compatibility
+
+All the packet and transaction details are well specified in RFC7252 and already optimized for resource constrained devices like embedded video cameras.  The details in the CoAP specification are not repeated here.
+
+CoAP provides maximum flexibility for a wide range of applications.  Some of that flexibility can be trimmed for a specific application to further reduce complexity.  CoAP application options for EEVideo are described here.
+
+EEVideo leverages CoAP for two distinct functions: register access and device discovery.  The device discovery functionality is detailed later.
+
+== EEVideo to CoAP Mapping
+
+=== Terminology
+
+The lexicons of digital video and Ethernet networking are not well aligned.  In video systems, server implies a central hub for managing streams, while in networking a server means a system that provides a service.  Both are correct but switching contexts can be confusing.  Thus the term "server" is avoided in this spec.
+
+This specification aligns mostly with digital video terminology.  A terminology cross reference may be helpful
+
+.Terminology Cross Reference
+[width=75%]
+[cols="1,1"]
+|===
+| Digital Video Terms    | CoAP Networking Terms
+
+| Camera, Sensor, Device | Server
+| Host, Controller       | Client
+| Response               | Acknowledge w/ piggyback response
+| Device or Host         | Endpoint
+| Read                   | GET
+| Write                  | PUT
+|===
+
+=== Network capability
+Video applications typically require high-bandwidth, low-error networks.  The low-throughput low-bandwidth assumptions and optimizations of CoAP are not necessarily valid.
+
+=== UDP
+EEVideo \<=1.0 exclusively uses UDP packets and asynchronous message exchanges.
+
+=== Port
+By default, EEVideo device and controller management packets shall use port 5683.  This is the IANA assigned port number for unsecured CoAP services.
+
+.Management Port
+[width=30%]
+[cols="1,4"]
+|===
+| Port | 5683
+|===
+
+=== Proxies
+EEVideo \<=1.0 does not require proxy features but does not necessarily restrict them.
+
+=== Security
+EEVideo \<=1.0 does not require CoAP DTLS features for security.
+
+=== Confirm-able
+EEVideo requests should be confirm-able
+
+=== Piggybacked response
+EEVideo responses should be piggybacked on acknowledgements when possible.
+
+=== One request at a time
+To support resource limited devices, hosts must limit their "simultaneous outstanding interactions" to 1 for each device.
+
+.Congestion Control
+[width=30%]
+[cols="1,4"]
+|===
+| NStart | 1
+|===
+
+== EEVideo extensions to CoAP
+
+=== Register Access
+The primary goal for CoAP transactions in EEVideo is to provide access to the status and control registers in an EEVideo device.  A host needs the ability to read and write these registers; responses back to the host are also required.  This produces 4 basic CoAP packet types.
+
+.Management Packet Types
+[cols="2h,1,1,1,4"]
+|===
+|Packet          |Source    |Receiver   |Payload       |Options
+
+| Register Read  | Host     | Device    | None         | Register Access, Binary Address
+| Register Write | Host     | Device    | Write Data   | Register Access, Binary Address
+| Read Response  | Device   | Host      | Read Data    | None
+| Write Response | Device   | Host      | None         | None
+|===
+
+All the capabilities of an EEVideo device can be realized with these 4 packets.  The goal is to make each as simple and efficient as possible.
+
+==== Binary Address Option
+Register-based requests must provide an address for their request.  The simplest way to specify a register address is with a binary value.  No hardware resources are required to convert a string option to native binary.  The CoAP standard does not list any options that appear suitable for a binary register address, so EEVideo specifies a new Binary Address Option.
+
+.Binary Address Option Properties
+[width=75%]
+[cols="1,4"]
+|===
+| Request Meaning      | Provides a binary address used to direct a request to a specific register address or memory location.
+| Response Meaning     | Provides the binary address of used to create the response.
+| Critical or Elective | Critical - Endpoints that do not recognize the Binary Address Option should report an error.  The requestor is expecting a response based on the address option.  If the appropriate response can not be delivered, an error is helpful.
+| Safe-to-Forward      | Safe - Proxies need not understand the Address Option to forward it to an endpoint that does.
+| Part of Cache-Key    | Yes - Responses will be different depending on the Address Option.  Caches must respect that.
+| Format of Value      | uint - Unsigned Integer in binary format.  Network byte order for multi-byte addresses.
+| Length of Value      | 1-4 Bytes - EEVideo registers are limited to a 32 bit (4 byte) address space.  Typically all the registers of a device will fit in a much smaller space allowing shorter addresses.  Upper (most significant) bits not included in the value are assumed to be 0.
+| Single or Repeatable | Repeatable - A single packet may request access to multiple registers.
+| Default Value        | 0 - Reading and Writing register 0 is a good default option.  EEVideo device register 0 is read only, so writes will have no effect.  Register 0 is also specified to contain capability details of the device, so it is helpful to retrieve its value.
+| Option Number        | 0b???? ???? ???n nn01 - nnn must not be 111.  Upper bits are TBD pending expert review of the option details.
+|===
+
+==== Register Access Option
+
+Registers can be read with GET requests and written with PUT requests based on a register address.  This meets the most basic functionality requirements.
+
+Efficiency can be improved by allowing specific Register Access Options.  For example, a single GET request may request many register reads either from contiguous register addresses or from the same register in certain circumstances.  Providing these options can reduce the packet count.  Register Access Options for PUT requests may enable setting individual bits of a register.  This can reduce read-modify-write operations to single packet processes.  The actual Register Access Option values for each mode (GET and PUT) are listed in the Register Read and Register Write sections of this specification.
+
+
+.Register Access Option Properties
+[width=75%]
+[cols="1,4"]
+|===
+| Request Meaning      | Indicates how the register request should be processed
+| Response Meaning     | Indicates how the register request was processed
+| Critical or Elective | Critical - Endpoints that do not recognize the Register Access Option should report an error.  The requestor is expecting processing and a response based on this option.  Receiving an error will indicate the request was not processed as expected.
+| Safe-to-Forward      | Safe - Proxies need not understand the Register Access Option to forward it to an endpoint that might.
+| Part of Cache-Key    | Yes - Responses will differ based on the Register Access Option so they must be cached separately.
+| Format of Value      | uint - Unsigned Integer in binary format.  Network byte order for multi-byte access option values.
+| Length of Value      | 1 Byte
+| Single or Repeatable | Single - All register requests and responses for a single packet must use the same access option.
+| Default Value        | 0 - The simplest, most common, Register Access Option is 0 for register reads and writes.  If the default value is 0, the Register Access Option will not be required by most requests.
+| Option Number        | 0b???? ???? ???n nn01 - nnn must not be 111.  Upper bits are TBD pending expert review of the option details.
+|===
+
+===== Register Access Option Value
+The Register Access Option Value is a single byte divided into two fields, type and count.
+
+It can be represented as t.c.  The Count field is 5 bits. The Type field is 3 bits.
+
+===== Register Access Count
+There are two ways to request access to multiple registers with a single request:
+
+. The request may contain multiple Binary Address options.
+. The Access Option may imply more than one register access.
+
+These multiple register request formats are both supported, but a host shall only use one in each request.  Combining these formats could be difficult for a device to process.  If the request contains a Register Access Option that implies more than one register, the request must not provide more than one Binary Address option.
+
+The Count field is used to allow multi-register operations with a single Binary Address Option.  Count values 1-31 indicate a single request for 1-31 register operations.  A Count value of 0 indicates 32 register operations.
+
+The Count field is only used for specific Access Types, it is ignored for the other Access Types.
+
+===== Register Read Access Types
+
+.Read Access Types
+[width=75%]
+[cols="1h,2,2,4"]
+|===
+| Code  | Description   | Increment | Reg Count
+
+| 0b000 | Read Register | no        | Count
+| 0b001 | Read FIFO,    | no        | Until empty detected or Max Regs
+| 0b100 | Read Register | yes       | Count
+| 0b101 | Read String   | yes       | Until null byte detected or Max Regs
+|===
+
+TBD define Max Regs
+
+===== Register Write Access Types
+
+.Write Access Types
+[width=75%]
+[cols="1,2,2,4"]
+|===
+| Code  | Description   | Increment | Reg Count
+
+| 0b000 | Write         | no        | Count
+| 0b001 | Set           | no        | 1
+| 0b010 | Clear         | no        | 1
+| 0b011 | Toggle        | no        | 1
+| 0b100 | Write         | yes       | Count
+| 0b101 | Masked Write  | yes       | Count
+| 0b111 | Reset/Advance | yes       | 1
+|===
+
+
+== EEVideo Management Packets
+
+=== Register Read Request
+
+Register Read Requests are generated by an EEVideo host and must be processed by an EEVideo device.
+
+.Register Read Request Packet
+[cols="4,4,5,16"]
+|===
+2+|Field               |Value       |Description
+
+2+| Ver                | 0b01     | Standard CoAP
+2+| T                  | 0b00     | Confirm-able
+2+| TKL                | 0b0000   | No Token required
+2+| Code               | 0x01     | 0.01 - Request . GET
+2+| Message ID         | 0x????   | Set by host, matched by device in response
+2+| Token              | -        | No Token required.
+.4+| Option - Register Access
+              | Delta  | 0xE      | 16 bit Delta required to reach custom option
+              | Length | 0x1      | 1 byte Register Access Option Value
+              | D - 269| 0x??     | Opt Delta extended value pending option number assignment
+              | Count  | 0b(cnt)  | 5 bit Register Access Count
+              | Type   | 0b(type) | 3 bit Register Access Type
+.4+| Option - Binary Address
+              | Delta  | 0x4(?    | (Expect Binary Address Option number to be near Register Access option)
+              | Length | 0x1-0x4  | For 1-4 byte address (addr)
+              | D - 269| 0x??     | Opt Delta extended value pending option number assignment
+              | Addr   | 0x(addr) | Binary Address
+2+| Payload            | -        | No Payload for GET
+4+|
+2+| Total            2+| 9-11+ Bytes (+ Frame, IP, UDP Headers and padding)
+|===
+
+=== Register Write Request
+
+.Register Write Request Packet
+[cols="4,4,5,16"]
+|===
+2+|Field               |Value       |Description
+
+2+| Ver                | 0b01       | Standard CoAP
+2+| T                  | 0b00       | Confirm-able
+2+| TKL                | 0b0000     | No Token required
+2+| Code               | 0x03       | 0.01 - Request . PUT
+2+| Message ID         | 0x????     | Set by host, matched by device in response
+2+| Token              | -          | No Token required.
+.4+| Option - Register Access
+              | Delta  | 0xE        | 16 bit Delta required to reach custom option
+              | Length | 0x1        | 1 byte Register Access Option Value
+              | D - 269| 0x??       | Opt Delta extended value pending option number assignment
+              | Count  | 0b(cnt)    | 5 bit Register Access Count
+              | Type   | 0b(type)   | 3 bit Register Access Type
+.4+| Option - Binary Address
+              | Delta  | 0x4(?)     | (Expect Binary Address Option number to be near Register Access option)
+              | Length | 0x1-0x4    | For 1-4 byte for address (addr)
+              | D - 269| 0x??       | Delta value pending option number assignment
+              | Addr   | 0x(addr)   | Binary Address
+2+| Payload Marker     | 0xFF       |
+2+| Payload            | 0xVVVVVVVV | Contiguous 32 bit write values for requested registers in order of request
+4+|
+2+| Total            2+| 13+ Bytes (+ Frame, IP, UDP Headers and padding)
+|===
+
+
+=== Register Read Response
+
+.Register Read Response Packet (successful)
+[cols="4,4,5,16"]
+|===
+2+|Field               |Value       |Description
+
+2+| Ver                | 0b01       | Standard CoAP
+2+| T                  | 0b00       | Confirm-able
+2+| TKL                | 0b0000     | No Token required
+2+| Code               | 0x15       | 2.05 - Success.Content
+2+| Message ID         | 0x????     | Set by host, matched by device in response
+2+| Token              | -          | No Token required.
+2+| Payload Marker     | 0xFF       |
+2+| Payload            | 0xVVVVVVVV | List of 32 bit register values for requested registers, in order of request
+4+|
+2+| Total            2+| 9+ Bytes (+ Frame, IP, UDP Headers and padding)
+|===
+
+=== Register Write Response
+
+.Register Write Response Packet (successful)
+[cols="4,4,5,16"]
+|===
+2+|Field               |Value       |Description
+
+2+| Ver                | 0b01       | Standard CoAP
+2+| T                  | 0b00       | Confirm-able
+2+| TKL                | 0b0000     | No Token required
+2+| Code               | 0x15       | 2.04 - Success.Changed
+2+| Message ID         | 0x????     | Set by host, matched by device in response
+2+| Token              | -          | No Token required.
+4+|
+2+| Total            2+| 4 Bytes (+ Frame, IP, UDP Headers and padding)
+|===
+
+Error Response Requirements TBD

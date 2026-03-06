@@ -1,0 +1,86 @@
+= Introduction
+
+IMPORTANT: This is an alpha draft version of the Embedded Ethernet Video Specification.  It is subject to significant changes in format and content before version 1.0 is released.  This version may contain fundamental errors.  It does contain sections marked TBD.  Comments and suggested changes are welcome.
+
+Embedded Ethernet Video (EEVideo) is a protocol for delivering video data streams across Ethernet interfaces using standard Ethernet hardware and standard Internet IP protocols.
+
+EEVideo is focused on embedded machine vision applications that process live camera stream data.  It may be useful to deliver sensor data in other applications.
+
+Delivering video over Ethernet is now routine. There are many protocol stacks available for different applications.  Frequently the choice comes down to the tool stack to manage the protocol and process the data.  EEVideo aims to provide an open source, simplified tool stack for machine vision applications.
+
+== Goals
+
+=== Leverage Ethernet Hardware and Software Standards
+Using commercial Ethernet devices provides a high bandwidth low cost hardware interface platform for embedded systems.
+
+Complying with existing Ethernet standards leverages existing software tools and enables other applications to use the same network hardware infrastructure.
+
+=== Low Latency
+One key to high performance machine vision is processing the freshest possible data.
+
+Achieving the lowest latency requires:
+
+* RAW / Uncompressed / Low-latency compressed data delivery
+* No requirements for frame buffering
+* Minimal processing for the device between the sensor and the network
+* Minimal processing for the host between packet buffers and image processing memory
+
+=== High Efficiency
+Video streams can consume significant bandwidth.  Minimizing protocol data overhead is critical.
+
+=== Low Complexity
+Simplifying the protocol operation can make it both faster and less expensive to implement.
+
+EEVideo assumes the host receiving the stream and controlling the sensor has significantly more processing power than the sensor device.  The main goal is to simplify sensor / camera complexity whenever possible.
+
+=== Flexible Formats
+Machine vision applications vary widely in video formats, frame rates, and pixel sample characteristics.  EEVideo needs to provide maximum flexibility.
+
+=== Open Source
+An open source specification can offer a head start over proprietary ad-hoc protocols.
+
+Many modern machine vision applications need low cost solutions to remain competitive.  Proprietary protocol and software stacks may not be a fit.
+
+== Specification Structure
+
+There are two mostly independent sections of the EEVideo protocol: the Management Protocol and the Stream Protocol.  These protocols have very different goals, so they have very little in common.  The Stream Protocol must be as light weight as possible.  The Management protocol is more complex to handle a wide range of potential features.
+
+The bandwidth required for management is minimal in comparison to the stream data and the latency is far less critical.
+
+=== EEVideo Management Protocol
+The Management Protocol enables a host to discover, configure, and monitor EEVideo streaming devices.  The goals of the Management Protocol are limited resource implementation and maximum flexibility.
+
+At the minimal limit, an EEVideo device may not require the Management Protocol.  A simple device on a pre-configured embedded network may simply power up and begin streaming with no host interaction.  More commonly a device will require some configuration, or a host will need some device information.  These functions are provided by the Management Protocol.
+
+==== CoAP Transactions
+EEVideo Management leverages the IETF Constrained Application Protocol (CoAP) to provide packet formats and transaction protcols for a host (client) to read (GET) and write (PUT) device (server) registers.
+
+The features of CoAP are described here, https://coap.space.  The full specification is available here, https://datatracker.ietf.org/doc/html/rfc7252.
+
+Implementation details of CoAP for EEVideo is in the CoAP Implementation section of this document.
+
+==== EEVideo Device Registers
+All host management interaction with an EEVideo device is done with 32 bit integer register based reads and writes.  The functionality of all the potential specified registers and their sub-fields is described in the Features section of this document.
+
+This single address/value interface provides unified access to all the available features.
+
+==== EEVideo Feature Discovery
+EEVideo devices may offer a wide range of specified and custom features.  The feature discovery protocol allows a host to download a list (from read only registers) of all the available features in a device.
+
+This list provides the identifiers and addresses for the host to build a map of register locations for monitoring and control of each listed feature.
+
+==== CoRE Device Discovery
+EEVideo Discovery leverages the IETF Constrained RESTful Environments (CoRE) Link Format in CoAP requests so hosts can multicast discovery requests to identify EEVideo capable devices on the network.  The CoRE specification is available here, https://datatracker.ietf.org/doc/html/rfc6690.
+
+Implementation details of CoRE for EEVideo is in the Device Discovery section of this document.
+
+==== IP Address Configuration
+IP Address Configuration is not technically part of the Management Protocol, but a valid IP Address must be assigned before the  Management Protocol is fully functional.  EEVideo offers several options for devices to establish their IP Address.
+
+=== EEVideo Streaming Protocol
+
+The Streaming Protocol is used to deliver video data across the network.  The goal of the streaming protocol is maximum efficiency in the device and host. It is designed for efficient use of bandwidth and minimal delivery latency.
+
+The Streaming Protocol packet and data formats are described in the Stream section of this document.
+
+
