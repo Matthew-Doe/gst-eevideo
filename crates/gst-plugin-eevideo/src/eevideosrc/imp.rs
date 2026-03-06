@@ -27,6 +27,7 @@ struct Settings {
     address: String,
     port: u32,
     multicast_group: String,
+    multicast_iface: String,
     timeout_ms: u64,
     latency_ms: u64,
     drop_incomplete: bool,
@@ -38,6 +39,7 @@ impl Default for Settings {
             address: "0.0.0.0".to_string(),
             port: 5000,
             multicast_group: String::new(),
+            multicast_iface: String::new(),
             timeout_ms: 2000,
             latency_ms: 0,
             drop_incomplete: true,
@@ -115,6 +117,12 @@ impl ObjectImpl for EeVideoSrc {
                     .default_value(None)
                     .flags(glib::ParamFlags::READWRITE)
                     .build(),
+                glib::ParamSpecString::builder("multicast-iface")
+                    .nick("Multicast Interface")
+                    .blurb("Optional local IPv4 interface address used to join the multicast group")
+                    .default_value(None)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
                 glib::ParamSpecUInt64::builder("timeout-ms")
                     .nick("Timeout")
                     .blurb("Timeout in milliseconds before incomplete frames are reaped")
@@ -168,6 +176,10 @@ impl ObjectImpl for EeVideoSrc {
                 settings.multicast_group =
                     value.get().expect("multicast-group type checked upstream")
             }
+            "multicast-iface" => {
+                settings.multicast_iface =
+                    value.get().expect("multicast-iface type checked upstream")
+            }
             "timeout-ms" => {
                 settings.timeout_ms = value.get().expect("timeout type checked upstream")
             }
@@ -189,6 +201,7 @@ impl ObjectImpl for EeVideoSrc {
             "address" => settings.address.to_value(),
             "port" => settings.port.to_value(),
             "multicast-group" => settings.multicast_group.to_value(),
+            "multicast-iface" => settings.multicast_iface.to_value(),
             "timeout-ms" => settings.timeout_ms.to_value(),
             "latency-ms" => settings.latency_ms.to_value(),
             "drop-incomplete" => settings.drop_incomplete.to_value(),
@@ -460,6 +473,11 @@ fn spawn_receiver_thread(
 
 fn create_receiver_socket(settings: &Settings) -> io::Result<UdpSocket> {
     let multicast_group = parse_multicast_group(&settings.multicast_group)?;
+    let multicast_iface = if multicast_group.is_some() {
+        parse_multicast_iface(&settings.multicast_iface)?
+    } else {
+        None
+    };
     let bind_addr = resolve_socket_addr(&settings.address, settings.port as u16)?;
 
     if multicast_group.is_some() && !matches!(bind_addr.ip(), IpAddr::V4(_)) {
@@ -483,7 +501,8 @@ fn create_receiver_socket(settings: &Settings) -> io::Result<UdpSocket> {
 
     let socket: UdpSocket = socket.into();
     if let Some(group) = multicast_group {
-        socket.join_multicast_v4(&group, &Ipv4Addr::UNSPECIFIED)?;
+        let iface = multicast_iface.unwrap_or(Ipv4Addr::UNSPECIFIED);
+        socket.join_multicast_v4(&group, &iface)?;
     }
 
     Ok(socket)
@@ -521,9 +540,25 @@ fn parse_multicast_group(value: &str) -> io::Result<Option<Ipv4Addr>> {
     Ok(Some(address))
 }
 
+fn parse_multicast_iface(value: &str) -> io::Result<Option<Ipv4Addr>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    let address = value.parse::<Ipv4Addr>().map_err(|err| {
+        io::Error::new(
+            ErrorKind::InvalidInput,
+            format!("invalid multicast interface {value}: {err}"),
+        )
+    })?;
+
+    Ok(Some(address))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_multicast_group;
+    use super::{parse_multicast_group, parse_multicast_iface};
     use std::net::Ipv4Addr;
 
     #[test]
@@ -542,5 +577,18 @@ mod tests {
     #[test]
     fn rejects_non_multicast_group() {
         assert!(parse_multicast_group("127.0.0.1").is_err());
+    }
+
+    #[test]
+    fn accepts_empty_multicast_iface() {
+        assert_eq!(parse_multicast_iface("").unwrap(), None);
+    }
+
+    #[test]
+    fn accepts_ipv4_multicast_iface() {
+        assert_eq!(
+            parse_multicast_iface("192.168.1.20").unwrap(),
+            Some(Ipv4Addr::new(192, 168, 1, 20))
+        );
     }
 }

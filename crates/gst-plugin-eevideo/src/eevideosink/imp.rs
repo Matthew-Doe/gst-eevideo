@@ -13,6 +13,7 @@ use gst_base::subclass::prelude::*;
 use gstreamer as gst;
 use gstreamer_base as gst_base;
 use once_cell::sync::Lazy;
+use socket2::SockRef;
 
 use crate::common::{parse_caps, FrameFormat};
 
@@ -21,6 +22,7 @@ struct Settings {
     host: String,
     port: u32,
     bind_address: String,
+    multicast_iface: String,
     mtu: u32,
     packet_delay_ns: u64,
     multicast_loop: bool,
@@ -33,6 +35,7 @@ impl Default for Settings {
             host: "127.0.0.1".to_string(),
             port: 5000,
             bind_address: "0.0.0.0".to_string(),
+            multicast_iface: String::new(),
             mtu: 1200,
             packet_delay_ns: 0,
             multicast_loop: true,
@@ -101,6 +104,12 @@ impl ObjectImpl for EeVideoSink {
                     .default_value(Some("0.0.0.0"))
                     .flags(glib::ParamFlags::READWRITE)
                     .build(),
+                glib::ParamSpecString::builder("multicast-iface")
+                    .nick("Multicast Interface")
+                    .blurb("Optional local IPv4 interface address used for multicast transmit")
+                    .default_value(None)
+                    .flags(glib::ParamFlags::READWRITE)
+                    .build(),
                 glib::ParamSpecUInt::builder("mtu")
                     .nick("MTU")
                     .blurb("Maximum packet size including the compatibility-stream UDP payload")
@@ -161,6 +170,10 @@ impl ObjectImpl for EeVideoSink {
             "bind-address" => {
                 settings.bind_address = value.get().expect("bind-address type checked upstream")
             }
+            "multicast-iface" => {
+                settings.multicast_iface =
+                    value.get().expect("multicast-iface type checked upstream")
+            }
             "mtu" => settings.mtu = value.get().expect("mtu type checked upstream"),
             "packet-delay-ns" => {
                 settings.packet_delay_ns =
@@ -183,6 +196,7 @@ impl ObjectImpl for EeVideoSink {
             "host" => settings.host.to_value(),
             "port" => settings.port.to_value(),
             "bind-address" => settings.bind_address.to_value(),
+            "multicast-iface" => settings.multicast_iface.to_value(),
             "mtu" => settings.mtu.to_value(),
             "packet-delay-ns" => settings.packet_delay_ns.to_value(),
             "multicast-loop" => settings.multicast_loop.to_value(),
@@ -248,6 +262,23 @@ impl BaseSinkImpl for EeVideoSink {
 
         if let Ok(multicast_addr) = settings.host.parse::<std::net::Ipv4Addr>() {
             if multicast_addr.is_multicast() {
+                if let Some(multicast_iface) = parse_multicast_iface(&settings.multicast_iface)
+                    .map_err(|err| {
+                        gst::error_msg!(
+                            gst::ResourceError::Settings,
+                            ["failed to parse multicast interface: {}", err]
+                        )
+                    })?
+                {
+                    SockRef::from(&socket)
+                        .set_multicast_if_v4(&multicast_iface)
+                        .map_err(|err| {
+                            gst::error_msg!(
+                                gst::ResourceError::Settings,
+                                ["failed to set multicast interface: {}", err]
+                            )
+                        })?;
+                }
                 socket
                     .set_multicast_loop_v4(settings.multicast_loop)
                     .map_err(|err| {
@@ -391,4 +422,15 @@ impl BaseSinkImpl for EeVideoSink {
         self.unlocked.store(false, Ordering::Relaxed);
         Ok(())
     }
+}
+
+fn parse_multicast_iface(
+    value: &str,
+) -> Result<Option<std::net::Ipv4Addr>, std::net::AddrParseError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    value.parse::<std::net::Ipv4Addr>().map(Some)
 }

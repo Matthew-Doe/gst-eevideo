@@ -142,6 +142,10 @@ gst-launch-1.0 videotestsrc ! video/x-raw,format=UYVY,width=640,height=480,frame
 Two unicast listeners cannot both bind `127.0.0.1:5000`. Same-port fanout in
 this plugin is multicast-based rather than unicast socket sharing.
 
+If the host has multiple network interfaces and the default route is not the one
+you want, set `multicast-iface` on `eevideosrc` and `eevideosink` to a local
+IPv4 interface address.
+
 ## Where To Make Changes
 
 ### If you are changing the wire format
