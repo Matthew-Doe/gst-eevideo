@@ -3,10 +3,12 @@ use std::sync::Arc;
 use eevideo_proto::{PayloadType, PixelFormat, StreamProfileId};
 
 pub mod coap;
+pub mod backend;
 pub mod discovery;
 pub mod register;
 pub mod yaml;
 
+pub use backend::{CoapRegisterBackend, CoapRegisterBackendConfig};
 pub use coap::{
     CoapError, CoapMessage, CoapMessageType, CoapOption, OPTION_EEV_BINARY_ADDRESS,
     OPTION_EEV_REG_ACCESS,
