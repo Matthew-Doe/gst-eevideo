@@ -4,11 +4,14 @@ use eevideo_proto::{PayloadType, PixelFormat, StreamProfileId};
 
 pub mod coap;
 pub mod backend;
+pub mod controller;
 pub mod discovery;
 pub mod register;
+pub mod register_map;
 pub mod yaml;
 
 pub use backend::{CoapRegisterBackend, CoapRegisterBackendConfig};
+pub use controller::{DeviceController, DeviceDescription, DeviceSummary};
 pub use coap::{
     CoapError, CoapMessage, CoapMessageType, CoapOption, OPTION_EEV_BINARY_ADDRESS,
     OPTION_EEV_REG_ACCESS,
@@ -21,6 +24,7 @@ pub use discovery::{
 pub use register::{
     RegisterAccess, RegisterClient, RegisterError, RegisterReadKind, RegisterWriteKind,
 };
+pub use register_map::{FieldUpdate, RegisterSelector, RegisterValue};
 pub use yaml::{
     device_config_to_string, load_embedded_feature_catalog, read_device_config,
     write_device_config, DeviceCapabilities, DeviceConfig, DeviceLocation, DeviceMemoryMap,

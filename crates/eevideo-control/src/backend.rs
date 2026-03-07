@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -7,11 +7,14 @@ use std::time::Duration;
 use eevideo_proto::{PixelFormat, StreamProfileId};
 
 use crate::discovery::{discover_devices, DISCOVERY_PORT};
-use crate::register::{RegisterClient, RegisterError};
+use crate::register::RegisterClient;
+use crate::register_map::{
+    read_register_field, register_error, register_name, resolve_stream_prefix,
+    write_register_fields, write_register_u32, FieldUpdate, RegisterSelector,
+};
 use crate::yaml::{
     load_embedded_feature_catalog, read_device_config, write_device_config, DeviceCapabilities,
-    DeviceConfig, DeviceLocation, DeviceMemoryMap, DeviceRegisterValue, FeatureCatalog,
-    FeatureFieldDefinition, YamlError,
+    DeviceConfig, DeviceLocation, DeviceMemoryMap, DeviceRegisterValue, FeatureCatalog, YamlError,
 };
 use crate::{
     AppliedStreamConfiguration, ControlBackend, ControlCapabilities, ControlConnection,
@@ -21,15 +24,6 @@ use crate::{
 
 const CAPABILITIES_ADDR: u32 = 0;
 const FEATURE_TABLE_ADDR: u32 = 16;
-const STREAM_REGISTER_NAMES: &[&str] = &[
-    "MaxPacketSize",
-    "Delay",
-    "DestIPAddr",
-    "DestPort",
-    "PixelsPerLine",
-    "LinesPerFrame",
-    "PixelFormat",
-];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CoapRegisterBackendConfig {
@@ -58,10 +52,10 @@ pub struct CoapRegisterBackend {
 }
 
 #[derive(Clone, Debug)]
-struct DeviceEndpoint {
-    addr: SocketAddr,
-    host: String,
-    uri: String,
+pub(crate) struct DeviceEndpoint {
+    pub(crate) addr: SocketAddr,
+    pub(crate) host: String,
+    pub(crate) uri: String,
 }
 
 #[derive(Clone, Debug)]
@@ -89,7 +83,10 @@ impl CoapRegisterBackend {
         &self.config
     }
 
-    fn connect_endpoint(&self, endpoint: &DeviceEndpoint) -> Result<CoapRegisterConnection, ControlError> {
+    fn connect_endpoint(
+        &self,
+        endpoint: &DeviceEndpoint,
+    ) -> Result<CoapRegisterConnection, ControlError> {
         let device = self.load_or_create_device_config(endpoint)?;
         Ok(CoapRegisterConnection {
             endpoint: endpoint.clone(),
@@ -101,7 +98,10 @@ impl CoapRegisterBackend {
         })
     }
 
-    fn load_or_create_device_config(&self, endpoint: &DeviceEndpoint) -> Result<DeviceConfig, ControlError> {
+    pub(crate) fn load_or_create_device_config(
+        &self,
+        endpoint: &DeviceEndpoint,
+    ) -> Result<DeviceConfig, ControlError> {
         if let Some(root) = self.config.yaml_root.as_ref() {
             if let Some(device) = maybe_read_device_config(root, endpoint)? {
                 return Ok(device);
@@ -208,36 +208,7 @@ impl CoapRegisterConnection {
     }
 
     fn resolve_stream_prefix(&self, requested_stream_name: &str) -> Result<String, ControlError> {
-        let mut prefixes = BTreeSet::new();
-        for register_name in self.device.registers.keys() {
-            if let Some((prefix, suffix)) = register_name.split_once('_') {
-                if STREAM_REGISTER_NAMES.contains(&suffix) {
-                    prefixes.insert(prefix.to_string());
-                }
-            }
-        }
-
-        if prefixes.is_empty() {
-            return Err(ControlError::new(
-                ControlErrorKind::InvalidConfiguration,
-                "device does not expose a configurable stream register block",
-            ));
-        }
-
-        if prefixes.contains(requested_stream_name) {
-            return Ok(requested_stream_name.to_string());
-        }
-
-        if prefixes.len() == 1 {
-            return Ok(prefixes.into_iter().next().expect("single prefix"));
-        }
-
-        Err(ControlError::new(
-            ControlErrorKind::InvalidConfiguration,
-            format!(
-                "requested stream {requested_stream_name} does not match any available device stream prefix"
-            ),
-        ))
+        resolve_stream_prefix(&self.device, requested_stream_name)
     }
 
     fn write_stream_configuration(
@@ -273,26 +244,30 @@ impl CoapRegisterConnection {
         write_register_fields(
             client,
             &self.device,
-            register_name(prefix, "Delay"),
-            &[("delay", delay)],
+            &RegisterSelector::name(register_name(prefix, "Delay")),
+            &[FieldUpdate::new("delay", delay)],
         )?;
         write_register_u32(
             client,
             &self.device,
-            register_name(prefix, "DestPort"),
+            &RegisterSelector::name(register_name(prefix, "DestPort")),
             u32::from(request.port),
         )?;
         write_register_u32(
             client,
             &self.device,
-            register_name(prefix, "DestIPAddr"),
+            &RegisterSelector::name(register_name(prefix, "DestIPAddr")),
             u32::from(destination_ip),
         )?;
         write_register_fields(
             client,
             &self.device,
-            register_name(prefix, "MaxPacketSize"),
-            &[("fireTestPkt", 0), ("enable", 0), ("maxPkt", u32::from(request.max_packet_size))],
+            &RegisterSelector::name(register_name(prefix, "MaxPacketSize")),
+            &[
+                FieldUpdate::new("fireTestPkt", 0),
+                FieldUpdate::new("enable", 0),
+                FieldUpdate::new("maxPkt", u32::from(request.max_packet_size)),
+            ],
         )?;
 
         if let Some(format) = &request.format {
@@ -375,11 +350,11 @@ impl ControlConnection for CoapRegisterConnection {
         write_register_fields(
             &client,
             &self.device,
-            register_name(&configured.register_prefix, "MaxPacketSize"),
+            &RegisterSelector::name(register_name(&configured.register_prefix, "MaxPacketSize")),
             &[
-                ("fireTestPkt", 0),
-                ("enable", 1),
-                ("maxPkt", u32::from(configured.applied.max_packet_size)),
+                FieldUpdate::new("fireTestPkt", 0),
+                FieldUpdate::new("enable", 1),
+                FieldUpdate::new("maxPkt", u32::from(configured.applied.max_packet_size)),
             ],
         )?;
 
@@ -413,8 +388,8 @@ impl ControlConnection for CoapRegisterConnection {
         write_register_fields(
             &client,
             &self.device,
-            register_name(&configured.register_prefix, "MaxPacketSize"),
-            &[("enable", 0)],
+            &RegisterSelector::name(register_name(&configured.register_prefix, "MaxPacketSize")),
+            &[FieldUpdate::new("enable", 0)],
         )?;
         self.running_stream_id = None;
         Ok(())
@@ -427,7 +402,7 @@ impl ControlConnection for CoapRegisterConnection {
     }
 }
 
-fn parse_device_endpoint(device_uri: &str) -> Result<DeviceEndpoint, ControlError> {
+pub(crate) fn parse_device_endpoint(device_uri: &str) -> Result<DeviceEndpoint, ControlError> {
     let trimmed = device_uri.trim();
     if trimmed.is_empty() {
         return Err(ControlError::new(
@@ -515,7 +490,11 @@ fn sanitize_filename(value: &str) -> String {
         .collect()
 }
 
-fn local_bind_addr(bind_address: Option<&str>, port: u16, device_addr: SocketAddr) -> SocketAddr {
+pub(crate) fn local_bind_addr(
+    bind_address: Option<&str>,
+    port: u16,
+    device_addr: SocketAddr,
+) -> SocketAddr {
     let ip = bind_address
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -665,20 +644,20 @@ fn apply_format_registers(
     write_register_fields(
         client,
         device,
-        register_name(prefix, "PixelsPerLine"),
-        &[("ppl", format.width)],
+        &RegisterSelector::name(register_name(prefix, "PixelsPerLine")),
+        &[FieldUpdate::new("ppl", format.width)],
     )?;
     write_register_fields(
         client,
         device,
-        register_name(prefix, "LinesPerFrame"),
-        &[("lpf", format.height)],
+        &RegisterSelector::name(register_name(prefix, "LinesPerFrame")),
+        &[FieldUpdate::new("lpf", format.height)],
     )?;
     write_register_fields(
         client,
         device,
-        register_name(prefix, "PixelFormat"),
-        &[("bpp", format.pixel_format.pfnc() & 0xffff)],
+        &RegisterSelector::name(register_name(prefix, "PixelFormat")),
+        &[FieldUpdate::new("bpp", format.pixel_format.pfnc() & 0xffff)],
     )?;
     Ok(())
 }
@@ -688,11 +667,24 @@ fn read_stream_format(
     device: &DeviceConfig,
     prefix: &str,
 ) -> Result<Option<StreamFormatDescriptor>, ControlError> {
-    let width = read_register_field(client, device, &register_name(prefix, "PixelsPerLine"), "ppl")?;
-    let height =
-        read_register_field(client, device, &register_name(prefix, "LinesPerFrame"), "lpf")?;
-    let pixel_format_bits =
-        read_register_field(client, device, &register_name(prefix, "PixelFormat"), "bpp")?;
+    let width = read_register_field(
+        client,
+        device,
+        &RegisterSelector::name(register_name(prefix, "PixelsPerLine")),
+        "ppl",
+    )?;
+    let height = read_register_field(
+        client,
+        device,
+        &RegisterSelector::name(register_name(prefix, "LinesPerFrame")),
+        "lpf",
+    )?;
+    let pixel_format_bits = read_register_field(
+        client,
+        device,
+        &RegisterSelector::name(register_name(prefix, "PixelFormat")),
+        "bpp",
+    )?;
 
     if width == 0 || height == 0 || pixel_format_bits == 0 {
         return Ok(None);
@@ -713,126 +705,6 @@ fn read_stream_format(
     }))
 }
 
-fn register_name(prefix: &str, suffix: &str) -> String {
-    format!("{prefix}_{suffix}")
-}
-
-fn read_register_field(
-    client: &RegisterClient,
-    device: &DeviceConfig,
-    register_name: &str,
-    field_name: &str,
-) -> Result<u32, ControlError> {
-    let register = device
-        .registers
-        .get(register_name)
-        .ok_or_else(|| unknown_register(register_name))?;
-    let value = client.read_u32(register.addr).map_err(register_error)?;
-    let definition = register.fields.get(field_name).ok_or_else(|| {
-        ControlError::new(
-            ControlErrorKind::InvalidConfiguration,
-            format!("register {register_name} does not define field {field_name}"),
-        )
-    })?;
-    extract_field(value, definition)
-}
-
-fn write_register_u32(
-    client: &RegisterClient,
-    device: &DeviceConfig,
-    register_name: String,
-    value: u32,
-) -> Result<(), ControlError> {
-    let register = device
-        .registers
-        .get(&register_name)
-        .ok_or_else(|| unknown_register(&register_name))?;
-    client
-        .write_u32(register.addr, value)
-        .map_err(register_error)?;
-
-    let applied = client.read_u32(register.addr).map_err(register_error)?;
-    if applied != value {
-        return Err(ControlError::new(
-            ControlErrorKind::AppliedValueMismatch,
-            format!(
-                "device applied 0x{applied:08x} for register {register_name}, expected 0x{value:08x}"
-            ),
-        ));
-    }
-
-    Ok(())
-}
-
-fn write_register_fields(
-    client: &RegisterClient,
-    device: &DeviceConfig,
-    register_name: String,
-    fields: &[(&str, u32)],
-) -> Result<(), ControlError> {
-    let register = device
-        .registers
-        .get(&register_name)
-        .ok_or_else(|| unknown_register(&register_name))?;
-    if fields.is_empty() {
-        return Err(ControlError::new(
-            ControlErrorKind::InvalidConfiguration,
-            format!("no register fields provided for {register_name}"),
-        ));
-    }
-
-    let mut write_value = 0u32;
-    let mut mask_value = 0u32;
-    for (field_name, field_value) in fields {
-        let definition = register.fields.get(*field_name).ok_or_else(|| {
-            ControlError::new(
-                ControlErrorKind::InvalidConfiguration,
-                format!("register {register_name} does not define field {field_name}"),
-            )
-        })?;
-        let (shift, field_mask) = field_mask(definition)?;
-        if (*field_value & !field_mask) != 0 {
-            return Err(ControlError::new(
-                ControlErrorKind::InvalidConfiguration,
-                format!(
-                    "field {field_name} value 0x{field_value:x} exceeds the bit width of register {register_name}"
-                ),
-            ));
-        }
-        write_value |= *field_value << shift;
-        mask_value |= field_mask << shift;
-    }
-
-    if register.fields.len() != fields.len() {
-        let current = client.read_u32(register.addr).map_err(register_error)?;
-        write_value = (current & !mask_value) | (write_value & mask_value);
-    }
-
-    client
-        .write_u32(register.addr, write_value)
-        .map_err(register_error)?;
-
-    let applied = client.read_u32(register.addr).map_err(register_error)?;
-    for (field_name, field_value) in fields {
-        let definition = register.fields.get(*field_name).expect("field looked up above");
-        if extract_field(applied, definition)? != *field_value {
-            return Err(ControlError::new(
-                ControlErrorKind::AppliedValueMismatch,
-                format!(
-                    "device did not apply field {field_name} on register {register_name} as requested"
-                ),
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn extract_field(value: u32, definition: &FeatureFieldDefinition) -> Result<u32, ControlError> {
-    let (shift, mask) = field_mask(definition)?;
-    Ok((value >> shift) & mask)
-}
-
 fn pixel_format_from_device(value: u32) -> Option<PixelFormat> {
     PixelFormat::from_pfnc(value).ok().or_else(|| {
         [
@@ -850,63 +722,12 @@ fn pixel_format_from_device(value: u32) -> Option<PixelFormat> {
     })
 }
 
-fn field_mask(definition: &FeatureFieldDefinition) -> Result<(u32, u32), ControlError> {
-    if definition.len == 0 || definition.len > 32 || definition.msb + 1 < definition.len {
-        return Err(ControlError::new(
-            ControlErrorKind::InvalidConfiguration,
-            format!(
-                "invalid field definition with msb {} and len {}",
-                definition.msb, definition.len
-            ),
-        ));
-    }
-
-    let shift = definition.msb + 1 - definition.len;
-    let mask = if definition.len == 32 {
-        u32::MAX
-    } else {
-        (1u32 << definition.len) - 1
-    };
-    Ok((shift, mask))
-}
-
-fn unknown_register(name: &str) -> ControlError {
-    ControlError::new(
-        ControlErrorKind::InvalidConfiguration,
-        format!("device does not expose register {name}"),
-    )
-}
-
-fn discovery_error(error: impl std::fmt::Display) -> ControlError {
+pub(crate) fn discovery_error(error: impl std::fmt::Display) -> ControlError {
     ControlError::new(ControlErrorKind::Discovery, error.to_string())
 }
 
-fn yaml_error(error: YamlError) -> ControlError {
+pub(crate) fn yaml_error(error: YamlError) -> ControlError {
     ControlError::new(ControlErrorKind::Other, error.to_string())
-}
-
-fn register_error(error: RegisterError) -> ControlError {
-    match error {
-        RegisterError::Io(err) => {
-            let kind = if err.kind() == std::io::ErrorKind::TimedOut {
-                ControlErrorKind::Timeout
-            } else {
-                ControlErrorKind::Connection
-            };
-            ControlError::new(kind, err.to_string())
-        }
-        RegisterError::Coap(err) => {
-            ControlError::new(ControlErrorKind::Connection, err.to_string())
-        }
-        RegisterError::InvalidAccess(message)
-        | RegisterError::UnknownRegister(message)
-        | RegisterError::Response(message) => {
-            ControlError::new(ControlErrorKind::InvalidConfiguration, message)
-        }
-        RegisterError::InvalidString(err) => {
-            ControlError::new(ControlErrorKind::Connection, err.to_string())
-        }
-    }
 }
 
 #[cfg(test)]
