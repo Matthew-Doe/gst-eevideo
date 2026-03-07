@@ -16,10 +16,10 @@ default = []
 gst-tests = []
 
 [dependencies]
+eevideo-control = { path = "../eevideo-control" }
 eevideo-proto = { path = "../eevideo-proto" }
 glib.workspace = true
 gstreamer.workspace = true
 gstreamer-base.workspace = true
 once_cell.workspace = true
 socket2.workspace = true
-

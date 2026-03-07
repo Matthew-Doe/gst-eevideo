@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/eevideo-control",
     "crates/eevideo-proto",
     "crates/gst-plugin-eevideo",
 ]

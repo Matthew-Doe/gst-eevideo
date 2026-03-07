@@ -1,0 +1,12 @@
+[package]
+name = "eevideo-control"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+description = "Control backend abstractions for the EEVideo Rust workspace"
+
+[dependencies]
+eevideo-proto = { path = "../eevideo-proto" }
+

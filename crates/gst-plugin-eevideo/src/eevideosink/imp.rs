@@ -20,8 +20,8 @@ use socket2::SockRef;
 
 use crate::common::{parse_caps, FrameFormat};
 use crate::control::{
-    default_control_backend, ControlSession, SharedControlBackend, StreamConfiguration,
-    StreamFormatDescriptor,
+    default_control_backend, default_control_target, ControlSession, SharedControlBackend,
+    StreamConfiguration, StreamFormatDescriptor,
 };
 
 #[derive(Clone, Debug)]
@@ -329,8 +329,9 @@ impl BaseSinkImpl for EeVideoSink {
             })?;
 
         let control_template = build_stream_configuration(&settings, None);
+        let control_target = default_control_target(&control_template.stream_name);
         let mut control_session =
-            ControlSession::new(Arc::clone(&self.control), control_template.clone());
+            ControlSession::new(Arc::clone(&self.control), control_target, control_template.clone());
         control_session
             .configure(control_template.clone())
             .map_err(|err| {
@@ -364,6 +365,7 @@ impl BaseSinkImpl for EeVideoSink {
     fn stop(&self) -> Result<(), gst::ErrorMessage> {
         if let Some(mut state) = self.state.lock().expect("state lock poisoned").take() {
             let _ = state.control_session.stop();
+            let _ = state.control_session.disconnect();
         }
         self.unlocked.store(false, Ordering::Relaxed);
         Ok(())
