@@ -1,0 +1,11 @@
+[env]
+PKG_CONFIG = "C:/ProgramData/chocolatey/bin/pkg-config.exe"
+PKG_CONFIG_PATH = "C:/Program Files/gstreamer/1.0/msvc_x86_64/lib/pkgconfig"
+
+[target.x86_64-pc-windows-msvc]
+# pkg-config locates the GStreamer .pc files correctly on this machine, but the
+# emitted Windows libdir loses the drive prefix and breaks link.exe. Add the
+# import-library directory explicitly so linked builds do not depend on that
+# malformed /LIBPATH value.
+rustflags = ["-Lnative=C:/Program Files/gstreamer/1.0/msvc_x86_64/lib"]
+runner = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:/devel/eevideo/.cargo/windows-runner.ps1"]

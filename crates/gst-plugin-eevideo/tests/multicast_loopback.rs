@@ -9,20 +9,23 @@ use gst::prelude::*;
 use gstreamer as gst;
 
 const MULTICAST_GROUP: &str = "239.255.10.10";
-const MULTICAST_PORT: u32 = 5602;
+
+mod support;
 
 #[test]
 fn source_multicast_loopback_reaches_multiple_receivers() {
     gst::init().unwrap();
     gsteevideo::register_static().unwrap();
 
-    let (pipeline_a, src_a) = build_receiver_pipeline();
-    let (pipeline_b, src_b) = build_receiver_pipeline();
+    let (reservation, multicast_port) = support::reserve_udp_port("0.0.0.0");
+    let (pipeline_a, src_a) = build_receiver_pipeline(multicast_port);
+    let (pipeline_b, src_b) = build_receiver_pipeline(multicast_port);
 
+    drop(reservation);
     pipeline_a.set_state(gst::State::Playing).unwrap();
     pipeline_b.set_state(gst::State::Playing).unwrap();
 
-    thread::spawn(|| {
+    thread::spawn(move || {
         let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
         socket.set_multicast_loop_v4(true).unwrap();
         socket.set_multicast_ttl_v4(1).unwrap();
@@ -40,7 +43,7 @@ fn source_multicast_loopback_reaches_multiple_receivers() {
         let packetizer = CompatPacketizer::new(512).unwrap();
         for packet in packetizer.packetize(&frame).unwrap() {
             socket
-                .send_to(&packet, (MULTICAST_GROUP, MULTICAST_PORT as u16))
+                .send_to(&packet, (MULTICAST_GROUP, multicast_port as u16))
                 .unwrap();
         }
     });
@@ -68,10 +71,12 @@ fn sink_multicast_loopback_reaches_multiple_receivers() {
     gst::init().unwrap();
     gsteevideo::register_static().unwrap();
 
-    let (pipeline_a, src_a) = build_receiver_pipeline();
-    let (pipeline_b, src_b) = build_receiver_pipeline();
-    let sender = build_sender_pipeline();
+    let (reservation, multicast_port) = support::reserve_udp_port("0.0.0.0");
+    let (pipeline_a, src_a) = build_receiver_pipeline(multicast_port);
+    let (pipeline_b, src_b) = build_receiver_pipeline(multicast_port);
+    let sender = build_sender_pipeline(multicast_port);
 
+    drop(reservation);
     pipeline_a.set_state(gst::State::Playing).unwrap();
     pipeline_b.set_state(gst::State::Playing).unwrap();
     thread::sleep(Duration::from_millis(200));
@@ -114,11 +119,11 @@ fn sink_multicast_loopback_reaches_multiple_receivers() {
     );
 }
 
-fn build_receiver_pipeline() -> (gst::Pipeline, gst::Element) {
+fn build_receiver_pipeline(multicast_port: u32) -> (gst::Pipeline, gst::Element) {
     let pipeline = gst::Pipeline::default();
     let src = gst::ElementFactory::make("eevideosrc")
         .property("address", "0.0.0.0")
-        .property("port", MULTICAST_PORT)
+        .property("port", multicast_port)
         .property("multicast-group", MULTICAST_GROUP)
         .property("timeout-ms", 500u64)
         .build()
@@ -131,7 +136,7 @@ fn build_receiver_pipeline() -> (gst::Pipeline, gst::Element) {
     (pipeline, src)
 }
 
-fn build_sender_pipeline() -> gst::Pipeline {
+fn build_sender_pipeline(multicast_port: u32) -> gst::Pipeline {
     let pipeline = gst::Pipeline::default();
     let src = gst::ElementFactory::make("videotestsrc")
         .property("num-buffers", 1i32)
@@ -148,7 +153,7 @@ fn build_sender_pipeline() -> gst::Pipeline {
         .unwrap();
     let sink = gst::ElementFactory::make("eevideosink")
         .property("host", MULTICAST_GROUP)
-        .property("port", MULTICAST_PORT)
+        .property("port", multicast_port)
         .property("multicast-loop", true)
         .property("multicast-ttl", 1u32)
         .build()
