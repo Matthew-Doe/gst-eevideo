@@ -18,8 +18,7 @@ pub fn register_static() -> Result<(), glib::BoolError> {
     Ok(())
 }
 
-#[cfg(feature = "gst-tests")]
-pub fn configure_source_control_for_tests(
+pub fn configure_source_control(
     element: &gst::Element,
     backend: eevideo_control::SharedControlBackend,
     target: eevideo_control::ControlTarget,
@@ -33,8 +32,18 @@ pub fn configure_source_control_for_tests(
         .downcast::<eevideosrc::EeVideoSrc>()
         .map_err(|_| glib::bool_error!("expected an eevideosrc element"))?;
     src.imp()
-        .configure_control_for_tests(backend, target, stream_name.into());
+        .configure_control(backend, target, stream_name.into());
     Ok(())
+}
+
+#[cfg(feature = "gst-tests")]
+pub fn configure_source_control_for_tests(
+    element: &gst::Element,
+    backend: eevideo_control::SharedControlBackend,
+    target: eevideo_control::ControlTarget,
+    stream_name: impl Into<String>,
+) -> Result<(), glib::BoolError> {
+    configure_source_control(element, backend, target, stream_name)
 }
 
 gst::plugin_define!(

@@ -105,8 +105,7 @@ impl Default for EeVideoSrc {
 }
 
 impl EeVideoSrc {
-    #[cfg(feature = "gst-tests")]
-    pub(crate) fn configure_control_for_tests(
+    pub(crate) fn configure_control(
         &self,
         backend: SharedControlBackend,
         target: ControlTarget,
@@ -120,6 +119,7 @@ impl EeVideoSrc {
             stream_name,
         };
     }
+
 }
 
 #[glib::object_subclass]
