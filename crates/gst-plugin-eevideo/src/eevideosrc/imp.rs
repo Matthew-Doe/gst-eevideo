@@ -57,7 +57,6 @@ struct RunningState {
     receiver: Arc<Mutex<Receiver<ReceiverEvent>>>,
     join: Option<JoinHandle<()>>,
     negotiated_format: Option<FrameFormat>,
-    latency_ns: u64,
 }
 
 pub struct EeVideoSrc {
@@ -292,7 +291,6 @@ impl BaseSrcImpl for EeVideoSrc {
             })?;
 
         let (sender, receiver) = mpsc::sync_channel(8);
-        let latency_ns = settings.latency_ms.saturating_mul(1_000_000);
         let stop = Arc::new(AtomicBool::new(false));
         let stats = Arc::clone(&self.stats);
         let join = Some(spawn_receiver_thread(
@@ -309,7 +307,6 @@ impl BaseSrcImpl for EeVideoSrc {
             receiver: Arc::new(Mutex::new(receiver)),
             join,
             negotiated_format: None,
-            latency_ns,
         });
 
         Ok(())
@@ -352,14 +349,14 @@ impl PushSrcImpl for EeVideoSrc {
                 return Err(gst::FlowError::Flushing);
             }
 
-            let (receiver, latency_ns) = {
+            let receiver = {
                 let state_guard = self.state.lock().expect("state lock poisoned");
                 let state = state_guard.as_ref().ok_or(gst::FlowError::Error)?;
-                (Arc::clone(&state.receiver), state.latency_ns)
+                Arc::clone(&state.receiver)
             };
             let event = {
                 let receiver = receiver.lock().expect("receiver lock poisoned");
-                receiver.recv_timeout(Duration::from_millis(5))
+                receiver.recv_timeout(Duration::from_millis(50))
             };
 
             match event {
@@ -384,6 +381,12 @@ impl PushSrcImpl for EeVideoSrc {
 
                     drop(state_guard);
 
+                    let latency_ns = self
+                        .settings
+                        .lock()
+                        .expect("settings lock poisoned")
+                        .latency_ms
+                        .saturating_mul(1_000_000);
                     let pts = frame.timestamp.saturating_add(latency_ns);
                     let mut buffer = gst::Buffer::from_mut_slice(frame.data);
                     if let Some(buffer_ref) = buffer.get_mut() {

@@ -372,7 +372,7 @@ fn buffered_payloads_overflow(frame: &PartialFrame, next_payload_len: usize) -> 
     let remaining = frame.data.len().saturating_sub(frame.offset);
     pending_payload_bytes(frame)
         .checked_add(next_payload_len)
-        .is_none_or(|buffered| buffered > remaining)
+        .map_or(true, |buffered| buffered > remaining)
 }
 
 fn pending_payload_bytes(frame: &PartialFrame) -> usize {

@@ -365,7 +365,7 @@ impl CompatPacketizer {
         let mut packet_id = 1u32;
         let chunk_len = self.payload_chunk_len();
         scratch.clear();
-        scratch.reserve(self.mtu.saturating_sub(scratch.capacity()));
+        scratch.reserve(self.mtu.saturating_sub(scratch.len()));
 
         for chunk in frame.data.chunks(chunk_len) {
             scratch.resize(COMPAT_HEADER_SIZE + chunk.len(), 0);
