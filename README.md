@@ -198,6 +198,27 @@ Example receiver:
 gst-launch-1.0 eevideosrc address=127.0.0.1 port=5000 timeout-ms=2000 ! videoconvert ! fpsdisplaysink sync=false video-sink=d3d11videosink text-overlay=true
 ```
 
+## LAN Throughput Notes
+
+For standard 1500-byte Ethernet, prefer an `mtu` in the `1400` to `1472`
+range. That keeps the compatibility UDP payload under a normal Ethernet frame
+budget without assuming jumbo frames.
+
+Practical guidance:
+
+- `1280x720@60 RGB` exceeds a 1 Gb link in practice; use `UYVY` when you want a
+  720p60 saturation test on gigabit Ethernet
+- use `mtu=1400` first for standard LAN testing
+- only use larger `mtu` values after jumbo frames are enabled end to end on
+  both NICs and the switch
+
+If you want to measure the current sender/receiver stack locally before running
+across the LAN, there is a manual feature-gated harness:
+
+```sh
+cargo test -p gst-plugin-eevideo --features gst-tests --test throughput_measurement -- --ignored --nocapture
+```
+
 ## Multiple Receivers On One Port
 
 Multiple `eevideosrc` instances can share the same UDP port when the sender uses

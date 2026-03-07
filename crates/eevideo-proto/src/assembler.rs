@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
-use crate::{CompatPacket, PayloadType, PixelFormat, StreamStats, VideoFrame};
+use crate::{CompatPacket, CompatPacketView, PayloadType, PixelFormat, StreamStats, VideoFrame};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FrameKey(pub u32);
@@ -83,10 +83,19 @@ impl FrameAssembler {
         now: Instant,
         stats: &StreamStats,
     ) -> Result<Option<FrameEvent>, AssembleError> {
+        self.ingest_view(packet.as_view(), now, stats)
+    }
+
+    pub fn ingest_view(
+        &mut self,
+        packet: CompatPacketView<'_>,
+        now: Instant,
+        stats: &StreamStats,
+    ) -> Result<Option<FrameEvent>, AssembleError> {
         stats.record_packet();
 
         match packet {
-            CompatPacket::Leader {
+            CompatPacketView::Leader {
                 frame_id,
                 packet_id,
                 timestamp,
@@ -118,7 +127,7 @@ impl FrameAssembler {
 
                 Ok(None)
             }
-            CompatPacket::Payload {
+            CompatPacketView::Payload {
                 frame_id,
                 packet_id,
                 data,
@@ -151,11 +160,19 @@ impl FrameAssembler {
                     }
                 }
 
-                frame.pending_payloads.insert(packet_id, data);
+                if frame.packet_id.checked_add(1) == Some(packet_id) {
+                    if let Err(reason) = append_payload_bytes(&mut frame, packet_id, data) {
+                        stats.record_packet_anomaly();
+                        stats.record_drop();
+                        return Ok(Some(FrameEvent::Dropped { frame_id, reason }));
+                    }
+                } else {
+                    frame.pending_payloads.insert(packet_id, data.to_vec());
+                }
                 frame.last_update = now;
                 Ok(self.reconcile_frame(key, frame, stats))
             }
-            CompatPacket::Trailer {
+            CompatPacketView::Trailer {
                 frame_id,
                 packet_id,
             } => {
@@ -306,6 +323,22 @@ fn progress_frame(mut frame: PartialFrame) -> FrameProgress {
     })
 }
 
+fn append_payload_bytes(
+    frame: &mut PartialFrame,
+    packet_id: u32,
+    data: &[u8],
+) -> Result<(), FrameDropReason> {
+    let next_offset = frame.offset + data.len();
+    if next_offset > frame.data.len() {
+        return Err(FrameDropReason::PayloadOverflow);
+    }
+
+    frame.data[frame.offset..next_offset].copy_from_slice(data);
+    frame.offset = next_offset;
+    frame.packet_id = packet_id;
+    Ok(())
+}
+
 fn flush_pending_payloads(frame: &mut PartialFrame) -> Result<(), FrameDropReason> {
     loop {
         let Some(next_packet_id) = frame.packet_id.checked_add(1) else {
@@ -316,14 +349,7 @@ fn flush_pending_payloads(frame: &mut PartialFrame) -> Result<(), FrameDropReaso
             return Ok(());
         };
 
-        let next_offset = frame.offset + chunk.len();
-        if next_offset > frame.data.len() {
-            return Err(FrameDropReason::PayloadOverflow);
-        }
-
-        frame.data[frame.offset..next_offset].copy_from_slice(&chunk);
-        frame.offset = next_offset;
-        frame.packet_id = next_packet_id;
+        append_payload_bytes(frame, next_packet_id, &chunk)?;
     }
 }
 

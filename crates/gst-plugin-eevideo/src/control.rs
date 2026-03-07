@@ -88,10 +88,6 @@ impl ControlSession {
         }
     }
 
-    pub fn config(&self) -> &StreamConfiguration {
-        &self.config
-    }
-
     pub fn configure(&mut self, config: StreamConfiguration) -> Result<(), ControlError> {
         if self.configured && self.config == config {
             return Ok(());
