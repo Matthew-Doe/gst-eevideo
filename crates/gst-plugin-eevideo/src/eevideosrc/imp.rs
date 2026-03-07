@@ -7,7 +7,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use eevideo_proto::{
-    CompatPacket, FrameAssembler, FrameEvent, StreamStats, VideoFrame, SUPPORTED_CAPS,
+    CompatPacketView, FrameAssembler, FrameEvent, StreamStats, VideoFrame, SUPPORTED_CAPS,
 };
 use gst::glib;
 use gst::prelude::*;
@@ -54,7 +54,7 @@ enum ReceiverEvent {
 
 struct RunningState {
     stop: Arc<AtomicBool>,
-    receiver: Mutex<Receiver<ReceiverEvent>>,
+    receiver: Arc<Mutex<Receiver<ReceiverEvent>>>,
     join: Option<JoinHandle<()>>,
     negotiated_format: Option<FrameFormat>,
 }
@@ -304,7 +304,7 @@ impl BaseSrcImpl for EeVideoSrc {
         let mut state = self.state.lock().expect("state lock poisoned");
         *state = Some(RunningState {
             stop,
-            receiver: Mutex::new(receiver),
+            receiver: Arc::new(Mutex::new(receiver)),
             join,
             negotiated_format: None,
         });
@@ -349,16 +349,21 @@ impl PushSrcImpl for EeVideoSrc {
                 return Err(gst::FlowError::Flushing);
             }
 
-            let mut state_guard = self.state.lock().expect("state lock poisoned");
-            let state = state_guard.as_mut().ok_or(gst::FlowError::Error)?;
+            let receiver = {
+                let state_guard = self.state.lock().expect("state lock poisoned");
+                let state = state_guard.as_ref().ok_or(gst::FlowError::Error)?;
+                Arc::clone(&state.receiver)
+            };
             let event = {
-                let receiver = state.receiver.lock().expect("receiver lock poisoned");
+                let receiver = receiver.lock().expect("receiver lock poisoned");
                 receiver.recv_timeout(Duration::from_millis(50))
             };
 
             match event {
                 Ok(ReceiverEvent::Frame(frame)) => {
                     let format = FrameFormat::from_frame(&frame);
+                    let mut state_guard = self.state.lock().expect("state lock poisoned");
+                    let state = state_guard.as_mut().ok_or(gst::FlowError::Error)?;
                     match state.negotiated_format {
                         Some(existing) if existing != format => {
                             self.stats.record_drop();
@@ -415,7 +420,7 @@ fn spawn_receiver_thread(
 
             match socket.recv_from(&mut buf) {
                 Ok((size, _peer)) => {
-                    let packet = match CompatPacket::parse(&buf[..size]) {
+                    let packet = match CompatPacketView::parse(&buf[..size]) {
                         Ok(packet) => packet,
                         Err(_) => {
                             stats.record_packet_anomaly();
@@ -423,7 +428,7 @@ fn spawn_receiver_thread(
                         }
                     };
 
-                    match assembler.ingest(packet, now, &stats) {
+                    match assembler.ingest_view(packet, now, &stats) {
                         Ok(Some(FrameEvent::Complete(frame))) => {
                             let format = FrameFormat::from_frame(&frame);
                             if let Some(existing) = current_format {

@@ -31,10 +31,11 @@ Original upstream source code and related EEVideo projects are published at:
 Use this order:
 
 1. Read [README.md](c:/devel/eevideo/README.md).
-2. Read [implementation-profile.md](c:/devel/eevideo/docs/implementation-profile.md).
-3. Build and run `cargo test --workspace`.
-4. Run the local sender/receiver smoke test from the README.
-5. Only after that, start changing code.
+2. Read [compatibility-stream-profile.md](c:/devel/eevideo/docs/compatibility-stream-profile.md).
+3. Read [implementation-profile.md](c:/devel/eevideo/docs/implementation-profile.md).
+4. Build and run `cargo test --workspace`.
+5. Run the local sender/receiver smoke test from the README.
+6. Only after that, start changing code.
 
 If you skip step 2, you can easily implement behavior that looks reasonable but
 is outside the current project scope.
@@ -48,13 +49,15 @@ Required:
 - Rust stable with `x86_64-pc-windows-msvc`
 - Visual Studio Build Tools with the C++ workload
 - GStreamer MSVC runtime and development packages
-- `pkg-config`
+- a Windows-safe `pkg-config`
 
 Practical note:
 
-- Some Windows `pkg-config` setups handle `Program Files` poorly. If that
-  happens, use a no-space mirror or junction for the GStreamer install and point
-  `PKG_CONFIG_PATH` there.
+- The Chocolatey `pkg-config` binary works with the standard `Program Files`
+  GStreamer install path.
+- Some MSYS2 `pkg-config` builds handle `Program Files` poorly. If you are
+  stuck with one of those builds, use a no-space mirror or junction only as a
+  fallback and point `PKG_CONFIG_PATH` there.
 
 ### Linux
 
@@ -69,15 +72,17 @@ Required:
 ### Windows PowerShell
 
 ```powershell
-$env:PKG_CONFIG_PATH = "C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig"
-$env:Path = "C:\gstreamer\1.0\msvc_x86_64\bin;$env:Path"
+$env:PKG_CONFIG = "C:\ProgramData\chocolatey\bin\pkg-config.exe"
+$env:PKG_CONFIG_PATH = "C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig"
+$env:Path = "C:\Program Files\gstreamer\1.0\msvc_x86_64\bin;$env:Path"
 ```
 
 ### Windows cmd.exe
 
 ```cmd
-set PKG_CONFIG_PATH=C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig
-set PATH=C:\gstreamer\1.0\msvc_x86_64\bin;%PATH%
+set PKG_CONFIG=C:\ProgramData\chocolatey\bin\pkg-config.exe
+set PKG_CONFIG_PATH=C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig
+set PATH=C:\Program Files\gstreamer\1.0\msvc_x86_64\bin;%PATH%
 ```
 
 ## Build And Test Workflow
@@ -87,6 +92,9 @@ set PATH=C:\gstreamer\1.0\msvc_x86_64\bin;%PATH%
 ```sh
 cargo test --workspace
 ```
+
+`gst-plugin-eevideo` tests load GStreamer at runtime, so the GStreamer runtime
+DLL directory must already be on `PATH` before you run them.
 
 ### Release build
 
@@ -126,6 +134,13 @@ Sender:
 gst-launch-1.0 videotestsrc ! video/x-raw,format=RGB,width=640,height=480,framerate=30/1 ! eevideosink host=127.0.0.1 port=5000 mtu=4000
 ```
 
+For high-throughput LAN tests, prefer `UYVY` rather than `RGB`. On a direct
+Windows-to-Windows Ethernet link with jumbo frames working end to end, the
+current implementation sustained roughly `44` to `54` fps at
+`1280x720@60 UYVY` with `mtu=8900`. Standard-MTU settings such as `mtu=1400`
+are still useful for compatibility testing, but they are packet-rate limited
+for this workload.
+
 ### Multiple receivers on one port
 
 If you want more than one `eevideosrc` process to receive the same stream on the
@@ -156,6 +171,7 @@ IPv4 interface address.
 
 Start in:
 
+- `docs/compatibility-stream-profile.md`
 - `crates/eevideo-proto/src/compat_stream.rs`
 - `crates/eevideo-proto/src/assembler.rs`
 - `docs/implementation-profile.md`
@@ -208,6 +224,7 @@ Typical areas:
 - [Cargo.toml](c:/devel/eevideo/Cargo.toml)
 - [README.md](c:/devel/eevideo/README.md)
 - [implementation-profile.md](c:/devel/eevideo/docs/implementation-profile.md)
+- [compatibility-stream-profile.md](c:/devel/eevideo/docs/compatibility-stream-profile.md)
 - [compat_stream.rs](c:/devel/eevideo/crates/eevideo-proto/src/compat_stream.rs)
 - [assembler.rs](c:/devel/eevideo/crates/eevideo-proto/src/assembler.rs)
 - [imp.rs](c:/devel/eevideo/crates/gst-plugin-eevideo/src/eevideosrc/imp.rs)
@@ -245,9 +262,11 @@ Use this order for most changes:
 
 Check:
 
+- `PKG_CONFIG`
 - `PKG_CONFIG_PATH`
 - whether GStreamer dev packages are installed
-- whether your Windows install path has spaces that your `pkg-config` build mishandles
+- whether the GStreamer runtime `bin` directory is on `PATH`
+- whether your Windows `pkg-config` build mishandles `Program Files`
 
 ### `cl.exe` is missing on Windows
 

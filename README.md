@@ -83,16 +83,25 @@ Anything else should be converted upstream with standard elements such as
 This repository intentionally follows the currently deployed public host-side
 behavior.
 
-That means the active stream profile is:
+That means the active stream profile is the named
+`EEVideo Stream Compatibility Profile v1`.
+
+Its packet model is:
 
 - leader packet starts a frame
 - payload packets carry contiguous image bytes
-- trailer packet completes a frame
+- trailer packet closes the frame packet range, but completion still waits for
+  any missing payload packets
 - width, height, payload type, and pixel format are fixed after the first complete frame
 - incomplete or malformed frames are dropped
+- zero-length payload packets are ignored as anomalies
+- out-of-order payload packets are buffered within a frame until they can be
+  assembled, dropped for bounded overflow, or timed out
 
-See [docs/implementation-profile.md](docs/implementation-profile.md) for the
-normative project scope.
+See [docs/compatibility-stream-profile.md](docs/compatibility-stream-profile.md)
+for the normative packet rules and
+[docs/implementation-profile.md](docs/implementation-profile.md) for the
+project scope.
 
 ## Prerequisites
 
@@ -103,17 +112,20 @@ Recommended environment:
 - Rust stable with `x86_64-pc-windows-msvc`
 - Visual Studio Build Tools with the C++ workload
 - GStreamer MSVC runtime and development packages, `1.26+`
-- `pkg-config`
+- a Windows-safe `pkg-config`
 
 Typical environment setup:
 
 ```powershell
-$env:PKG_CONFIG_PATH = "C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig"
-$env:Path = "C:\gstreamer\1.0\msvc_x86_64\bin;$env:Path"
+$env:PKG_CONFIG = "C:\ProgramData\chocolatey\bin\pkg-config.exe"
+$env:PKG_CONFIG_PATH = "C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig"
+$env:Path = "C:\Program Files\gstreamer\1.0\msvc_x86_64\bin;$env:Path"
 ```
 
-If `pkg-config` has trouble with spaces in `Program Files`, use a no-space
-mirror or junction as a local workaround.
+The Chocolatey `pkg-config` binary works with the standard `Program Files`
+install path. Some MSYS2 `pkg-config` builds mishandle that path on Windows. If
+you are stuck with one of those builds, use a no-space mirror or junction only
+as a fallback workaround.
 
 ### Linux
 
@@ -144,6 +156,9 @@ Run the workspace tests:
 ```sh
 cargo test --workspace
 ```
+
+`gst-plugin-eevideo` tests load GStreamer at runtime, so the GStreamer runtime
+DLL directory must be on `PATH` when you run the test binaries.
 
 Run the feature-gated GStreamer integration tests:
 
@@ -191,6 +206,37 @@ Example receiver:
 gst-launch-1.0 eevideosrc address=127.0.0.1 port=5000 timeout-ms=2000 ! videoconvert ! fpsdisplaysink sync=false video-sink=d3d11videosink text-overlay=true
 ```
 
+## LAN Throughput Notes
+
+For standard 1500-byte Ethernet, prefer an `mtu` in the `1400` to `1472`
+range. That keeps the compatibility UDP payload under a normal Ethernet frame
+budget without assuming jumbo frames.
+
+Practical guidance:
+
+- `1280x720@60 RGB` exceeds a 1 Gb link in practice; use `UYVY` when you want a
+  720p60 saturation test on gigabit Ethernet
+- use `mtu=1400` first for standard LAN testing
+- only use larger `mtu` values after jumbo frames are enabled end to end on
+  both NICs and the switch
+
+Observed result on a direct Windows-to-Windows Ethernet link with jumbo frames
+validated by `ping -f -l 8972`:
+
+- `1280x720@60 UYVY` with `mtu=8900` sustained roughly `44` to `54` fps
+- `mtu=1400` remained packet-rate limited and is unusable for higher-resolution,
+  higher-framerate operation in the current implementation on that setup
+
+Treat `~38 fps` as a practical minimum bar for the current jumbo-frame LAN smoke
+test. `60 fps` remains the target, not the guaranteed floor.
+
+If you want to measure the current sender/receiver stack locally before running
+across the LAN, there is a manual feature-gated harness:
+
+```sh
+cargo test -p gst-plugin-eevideo --features gst-tests --test throughput_measurement -- --ignored --nocapture
+```
+
 ## Multiple Receivers On One Port
 
 Multiple `eevideosrc` instances can share the same UDP port when the sender uses
@@ -235,6 +281,7 @@ upstream repositories separately from that group and follow
 ## Additional Documentation
 
 - [docs/developer-guide.md](docs/developer-guide.md)
+- [docs/compatibility-stream-profile.md](docs/compatibility-stream-profile.md)
 - [docs/implementation-profile.md](docs/implementation-profile.md)
 - [docs/interop-smoke.md](docs/interop-smoke.md)
 - [docs/spec-enhancement-proposal.md](docs/spec-enhancement-proposal.md)
@@ -244,9 +291,12 @@ upstream repositories separately from that group and follow
 
 Near term:
 
+- improve Jetson cross-build validation
+
+Completed on this branch:
+
 - harden behavior under loss and reordering outside localhost
 - formalize the compatibility stream profile more clearly
-- improve Jetson cross-build validation
 - preserve a clean seam for future control-plane integration
 
 Later:

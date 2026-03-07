@@ -4,7 +4,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use eevideo_proto::{CompatPacketizer, PayloadType, StreamStats, VideoFrame, SUPPORTED_CAPS};
+use eevideo_proto::{
+    CompatPacketEmitError, CompatPacketizer, PayloadType, StreamProfileId, StreamStats,
+    VideoFrameRef, SUPPORTED_CAPS,
+};
 use gst::glib;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
@@ -16,6 +19,10 @@ use once_cell::sync::Lazy;
 use socket2::SockRef;
 
 use crate::common::{parse_caps, FrameFormat};
+use crate::control::{
+    default_control_backend, ControlSession, SharedControlBackend, StreamConfiguration,
+    StreamFormatDescriptor,
+};
 
 #[derive(Clone, Debug)]
 struct Settings {
@@ -48,12 +55,19 @@ struct RunningState {
     socket: UdpSocket,
     next_frame_id: u32,
     negotiated_format: Option<FrameFormat>,
+    packetizer: CompatPacketizer,
+    packet_scratch: Vec<u8>,
+    packet_delay_ns: u64,
+    // Internal transport lifecycle seam. The default backend is intentionally no-op in v1.
+    control_session: ControlSession,
+    control_template: StreamConfiguration,
 }
 
 pub struct EeVideoSink {
     settings: Mutex<Settings>,
     state: Mutex<Option<RunningState>>,
     stats: Arc<StreamStats>,
+    control: SharedControlBackend,
     unlocked: AtomicBool,
 }
 
@@ -63,6 +77,7 @@ impl Default for EeVideoSink {
             settings: Mutex::new(Settings::default()),
             state: Mutex::new(None),
             stats: Arc::new(StreamStats::default()),
+            control: default_control_backend(),
             unlocked: AtomicBool::new(false),
         }
     }
@@ -253,6 +268,7 @@ impl BaseSinkImpl for EeVideoSink {
             .lock()
             .expect("settings lock poisoned")
             .clone();
+        let mtu = settings.mtu as usize;
         let socket = UdpSocket::bind((settings.bind_address.as_str(), 0)).map_err(|err| {
             gst::error_msg!(
                 gst::ResourceError::OpenWrite,
@@ -312,20 +328,80 @@ impl BaseSinkImpl for EeVideoSink {
                 )
             })?;
 
+        let control_template = build_stream_configuration(&settings, None);
+        let mut control_session =
+            ControlSession::new(Arc::clone(&self.control), control_template.clone());
+        control_session
+            .configure(control_template.clone())
+            .map_err(|err| {
+                gst::error_msg!(
+                    gst::ResourceError::Settings,
+                    ["failed to configure control session: {}", err]
+                )
+            })?;
+        let packetizer = CompatPacketizer::new(mtu).map_err(|err| {
+            gst::error_msg!(
+                gst::ResourceError::Settings,
+                ["failed to configure packetizer: {}", err]
+            )
+        })?;
+
         let mut state = self.state.lock().expect("state lock poisoned");
         *state = Some(RunningState {
             socket,
             next_frame_id: 1,
             negotiated_format: None,
+            packetizer,
+            packet_scratch: Vec::with_capacity(mtu),
+            packet_delay_ns: settings.packet_delay_ns,
+            control_session,
+            control_template,
         });
 
         Ok(())
     }
 
     fn stop(&self) -> Result<(), gst::ErrorMessage> {
-        self.state.lock().expect("state lock poisoned").take();
+        if let Some(mut state) = self.state.lock().expect("state lock poisoned").take() {
+            let _ = state.control_session.stop();
+        }
         self.unlocked.store(false, Ordering::Relaxed);
         Ok(())
+    }
+
+    fn set_caps(&self, caps: &gst::Caps) -> Result<(), gst::LoggableError> {
+        let format = parse_caps(caps.as_ref())
+            .map_err(|err| gst::loggable_error!(gst::CAT_RUST, "{}", err))?;
+
+        let mut state_guard = self.state.lock().expect("state lock poisoned");
+        let state = state_guard
+            .as_mut()
+            .ok_or_else(|| gst::loggable_error!(gst::CAT_RUST, "sink not started"))?;
+
+        match state.negotiated_format {
+            Some(existing) if existing != format => {
+                return Err(gst::loggable_error!(
+                    gst::CAT_RUST,
+                    "mid-stream format change rejected"
+                ));
+            }
+            Some(_) => {}
+            None => {
+                let mut config = state.control_template.clone();
+                config.format = Some(to_stream_format_descriptor(format));
+                state
+                    .control_session
+                    .configure(config)
+                    .map_err(|err| gst::loggable_error!(gst::CAT_RUST, "{}", err))?;
+                state
+                    .control_session
+                    .start()
+                    .map_err(|err| gst::loggable_error!(gst::CAT_RUST, "{}", err))?;
+                state.negotiated_format = Some(format);
+            }
+        }
+
+        self.parent_set_caps(caps)
     }
 
     fn render(&self, buffer: &gst::Buffer) -> Result<gst::FlowSuccess, gst::FlowError> {
@@ -333,38 +409,9 @@ impl BaseSinkImpl for EeVideoSink {
             return Err(gst::FlowError::Flushing);
         }
 
-        let settings = self
-            .settings
-            .lock()
-            .expect("settings lock poisoned")
-            .clone();
-        let packetizer = CompatPacketizer::new(settings.mtu as usize).map_err(|_| {
-            self.stats.record_drop();
-            self.stats.record_packet_anomaly();
-            gst::FlowError::Error
-        })?;
-
         let mut state_guard = self.state.lock().expect("state lock poisoned");
         let state = state_guard.as_mut().ok_or(gst::FlowError::Error)?;
-
-        let current_caps = self
-            .obj()
-            .static_pad("sink")
-            .and_then(|pad| pad.current_caps())
-            .ok_or(gst::FlowError::NotNegotiated)?;
-        let current_format =
-            parse_caps(current_caps.as_ref()).map_err(|_| gst::FlowError::NotNegotiated)?;
-
-        match state.negotiated_format {
-            Some(existing) if existing != current_format => {
-                self.stats.record_drop();
-                self.stats.record_packet_anomaly();
-                return Err(gst::FlowError::NotNegotiated);
-            }
-            None => state.negotiated_format = Some(current_format),
-            Some(_) => {}
-        }
-
+        let current_format = state.negotiated_format.ok_or(gst::FlowError::NotNegotiated)?;
         let expected_len = current_format.payload_len().map_err(|_| {
             self.stats.record_drop();
             self.stats.record_packet_anomaly();
@@ -379,33 +426,37 @@ impl BaseSinkImpl for EeVideoSink {
         }
 
         let timestamp = buffer.pts().map(|pts| pts.nseconds()).unwrap_or(0);
-        let frame = VideoFrame {
+        let frame = VideoFrameRef {
             frame_id: state.next_frame_id,
             timestamp,
             width: current_format.width,
             height: current_format.height,
             pixel_format: current_format.pixel_format,
             payload_type: PayloadType::Image,
-            data: map.as_slice().to_vec(),
+            data: map.as_slice(),
         };
 
-        let packets = packetizer.packetize(&frame).map_err(|_| {
-            self.stats.record_drop();
-            self.stats.record_packet_anomaly();
-            gst::FlowError::Error
-        })?;
-
-        for packet in packets {
-            state.socket.send(&packet).map_err(|_| {
+        let socket = &state.socket;
+        let packetizer = &state.packetizer;
+        let packet_scratch = &mut state.packet_scratch;
+        let packet_delay_ns = state.packet_delay_ns;
+        packetizer
+            .emit_packets(frame, packet_scratch, |packet| {
+                socket.send(packet).map(|_| ())?;
+                if packet_delay_ns > 0 {
+                    thread::sleep(Duration::from_nanos(packet_delay_ns));
+                }
+                Ok::<(), std::io::Error>(())
+            })
+            .map_err(|err| {
                 self.stats.record_drop();
                 self.stats.record_packet_anomaly();
-                gst::FlowError::Error
+                match err {
+                    CompatPacketEmitError::Packet(_) | CompatPacketEmitError::Emit(_) => {
+                        gst::FlowError::Error
+                    }
+                }
             })?;
-
-            if settings.packet_delay_ns > 0 {
-                thread::sleep(Duration::from_nanos(settings.packet_delay_ns));
-            }
-        }
 
         state.next_frame_id = state.next_frame_id.wrapping_add(1);
         self.stats.record_frame();
@@ -433,4 +484,29 @@ fn parse_multicast_iface(
     }
 
     value.parse::<std::net::Ipv4Addr>().map(Some)
+}
+
+fn build_stream_configuration(
+    settings: &Settings,
+    format: Option<StreamFormatDescriptor>,
+) -> StreamConfiguration {
+    StreamConfiguration {
+        stream_name: format!("eevideo-compat://{}:{}", settings.host, settings.port),
+        profile: StreamProfileId::CompatibilityV1,
+        destination_host: settings.host.clone(),
+        port: u16::try_from(settings.port).expect("port is validated by the property range"),
+        bind_address: settings.bind_address.clone(),
+        packet_delay_ns: settings.packet_delay_ns,
+        max_packet_size: u16::try_from(settings.mtu).expect("mtu is validated by the property range"),
+        format,
+    }
+}
+
+fn to_stream_format_descriptor(format: FrameFormat) -> StreamFormatDescriptor {
+    StreamFormatDescriptor {
+        payload_type: PayloadType::Image,
+        pixel_format: format.pixel_format,
+        width: format.width,
+        height: format.height,
+    }
 }
