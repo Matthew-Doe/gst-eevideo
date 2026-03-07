@@ -1,7 +1,0 @@
-Write a GStreamer plugin called eevideo with eevideosrc and eevideosink elements, written in Rust. Eevideo spec and some source code is here: https://gitlab.com/eevideo.
-You could use it to stream webcam video uncompressed from one PC to another or the same
-Also get it to cross compile to Jetson Orin for a big win
-the streaming spec and code is immature right now, basically still using GVSP, another spec. We'd ask GPT 5.4 to extrapolate and expand on the spec doc, borrowing inspiration from GVSP, but keeping with the design goals of a lightweight protocol
-I attached a report
-The dev agrees with it's assessments 
-They've focused on the control side not streaming so welcome to get feedback 
