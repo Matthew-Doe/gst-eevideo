@@ -8,7 +8,8 @@ use eevideo_proto::{CompatPacketizer, PayloadType, PixelFormat, VideoFrame};
 use gst::prelude::*;
 use gstreamer as gst;
 
-const TEST_PORT: u32 = 5603;
+mod support;
+
 const FRAME_COUNT: u32 = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,10 +24,11 @@ fn source_handles_reordered_frames_and_drops_gapped_frames() {
     gst::init().unwrap();
     gsteevideo::register_static().unwrap();
 
+    let (reservation, test_port) = support::reserve_udp_port("127.0.0.1");
     let pipeline = gst::Pipeline::default();
     let src = gst::ElementFactory::make("eevideosrc")
         .property("address", "127.0.0.1")
-        .property("port", TEST_PORT)
+        .property("port", test_port)
         .property("timeout-ms", 150u64)
         .build()
         .unwrap();
@@ -37,6 +39,7 @@ fn source_handles_reordered_frames_and_drops_gapped_frames() {
 
     pipeline.add_many([&src, &sink]).unwrap();
     gst::Element::link_many([&src, &sink]).unwrap();
+    drop(reservation);
     pipeline.set_state(gst::State::Playing).unwrap();
 
     thread::sleep(Duration::from_millis(200));
@@ -68,7 +71,7 @@ fn source_handles_reordered_frames_and_drops_gapped_frames() {
 
     let sender = thread::spawn(move || {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-        socket.connect(("127.0.0.1", TEST_PORT as u16)).unwrap();
+        socket.connect(("127.0.0.1", test_port as u16)).unwrap();
 
         let packetizer = CompatPacketizer::new(96).unwrap();
         let mut rng = Lcg::new(0x5eed_cafe);

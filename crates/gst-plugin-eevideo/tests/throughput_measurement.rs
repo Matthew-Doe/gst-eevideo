@@ -6,16 +6,20 @@ use std::time::{Duration, Instant};
 use gst::prelude::*;
 use gstreamer as gst;
 
+mod support;
+
 #[test]
 #[ignore = "manual throughput measurement harness"]
 fn measure_uyvy_720p_profiles() {
     gst::init().unwrap();
     gsteevideo::register_static().unwrap();
 
-    for (port, fps) in [(5610u32, 30i32), (5611u32, 60i32)] {
+    for fps in [30i32, 60i32] {
+        let (reservation, port) = support::reserve_udp_port("127.0.0.1");
         let (receiver, src) = build_receiver_pipeline(port);
         let sender = build_sender_pipeline(port, fps);
 
+        drop(reservation);
         receiver.set_state(gst::State::Playing).unwrap();
         thread::sleep(Duration::from_millis(200));
 

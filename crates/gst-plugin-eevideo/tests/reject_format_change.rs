@@ -8,15 +8,18 @@ use eevideo_proto::{CompatPacketizer, PayloadType, PixelFormat, VideoFrame};
 use gst::prelude::*;
 use gstreamer as gst;
 
+mod support;
+
 #[test]
 fn source_rejects_mid_stream_format_change() {
     gst::init().unwrap();
     gsteevideo::register_static().unwrap();
 
+    let (reservation, port) = support::reserve_udp_port("127.0.0.1");
     let pipeline = gst::Pipeline::default();
     let src = gst::ElementFactory::make("eevideosrc")
         .property("address", "127.0.0.1")
-        .property("port", 5601u32)
+        .property("port", port)
         .property("timeout-ms", 500u64)
         .build()
         .unwrap();
@@ -24,11 +27,12 @@ fn source_rejects_mid_stream_format_change() {
 
     pipeline.add_many([&src, &sink]).unwrap();
     gst::Element::link_many([&src, &sink]).unwrap();
+    drop(reservation);
     pipeline.set_state(gst::State::Playing).unwrap();
 
-    thread::spawn(|| {
+    thread::spawn(move || {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-        socket.connect("127.0.0.1:5601").unwrap();
+        socket.connect(("127.0.0.1", port as u16)).unwrap();
         let packetizer = CompatPacketizer::new(512).unwrap();
 
         for frame in [
