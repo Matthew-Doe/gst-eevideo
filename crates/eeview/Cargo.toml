@@ -1,0 +1,16 @@
+[package]
+name = "eeview"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+description = "EEVideo live viewer and recorder CLI"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+ctrlc.workspace = true
+eevideo-control = { path = "../eevideo-control" }
+gsteevideo = { package = "gst-plugin-eevideo", path = "../gst-plugin-eevideo" }
+gstreamer.workspace = true

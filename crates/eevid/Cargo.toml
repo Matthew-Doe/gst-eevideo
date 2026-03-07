@@ -1,0 +1,14 @@
+[package]
+name = "eevid"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+description = "EEVideo device discovery and register control CLI"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+eevideo-control = { path = "../eevideo-control" }
+eevideo-proto = { path = "../eevideo-proto" }
