@@ -2,6 +2,30 @@ use std::sync::Arc;
 
 use eevideo_proto::{PayloadType, PixelFormat, StreamProfileId};
 
+pub mod coap;
+pub mod discovery;
+pub mod register;
+pub mod yaml;
+
+pub use coap::{
+    CoapError, CoapMessage, CoapMessageType, CoapOption, OPTION_EEV_BINARY_ADDRESS,
+    OPTION_EEV_REG_ACCESS,
+};
+pub use discovery::{
+    build_discovery_request, discover_devices, parse_discovery_advertisement,
+    DiscoveryAdvertisement, DiscoveryError, DiscoveryInterface, DiscoveryLink, DiscoveryResponse,
+    DISCOVERY_MULTICAST_ADDR, DISCOVERY_PORT, DISCOVERY_RESOURCE_TYPE,
+};
+pub use register::{
+    RegisterAccess, RegisterClient, RegisterError, RegisterReadKind, RegisterWriteKind,
+};
+pub use yaml::{
+    device_config_to_string, load_embedded_feature_catalog, read_device_config,
+    write_device_config, DeviceCapabilities, DeviceConfig, DeviceLocation, DeviceMemoryMap,
+    DeviceRegisterValue, FeatureCatalog, FeatureDefinition, FeatureFieldDefinition,
+    FeaturePointerDefinition, FeatureRegisterDefinition, YamlError,
+};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StreamFormatDescriptor {
     pub payload_type: PayloadType,

@@ -1,0 +1,536 @@
+"0x001001":
+  name: Identification Strings
+  sname: id
+  pointers:
+    - index: 0
+      name: Manufacturer Name
+      registers:
+        - offset: 0
+          name: ManufacturerName
+          acc: string
+    - index: 1
+      name: Device Model Name
+      registers:
+        - offset: 0
+          name: DeviceModelName
+          acc: string
+    - index: 2
+      name: Device Version
+      registers:
+        - offset: 0
+          name: DeviceVersion
+          acc: string
+    - index: 3
+      name: Serial Number
+      registers:
+        - offset: 0
+          name: SerialNumber
+          acc: string
+    - index: 4
+      name: Manufacturer Info
+      registers:
+        - offset: 0
+          name: ManufacturerInfo
+          acc: string
+    - index: 5
+      name: User Defined Name
+      registers:
+        - offset: 0
+          name: UserDefinedName
+          acc: string
+    - index: 6
+      name: Device Web Page
+      registers:
+        - offset: 0
+          name: DeviceWebPage
+          acc: string
+
+"0x010001":
+  name: Test Register Read/Write
+  sname: test
+  pointers:
+    - index: 0
+      name: Description
+      registers:
+        - offset: 0
+          name: Description
+          acc: string
+    - index: 1
+      name: Test Register
+      registers:
+        - offset: 0
+          name: reg
+          acc: rw
+          fields:
+            byte0:
+              msb: 31
+              len: 8
+            byte1:
+              msb: 23
+              len: 8
+            byte2:
+              msb: 15
+              len: 8
+            byte3:
+              msb: 7
+              len: 8
+            msb:
+              msb: 31
+              len: 1
+            lsb:
+              msb: 0
+              len: 1
+
+"0x101001":
+  name: Ethernet Interface
+  sname: eth
+  pointers:
+    - index: 0
+      name: Description
+      registers:
+        - offset: 0
+          name: Description
+          acc: string
+    - index: 1
+      name: MAC Address
+      registers:
+        - offset: 0
+          name: MacAddrMSBs
+          acc: ro
+          fields:
+            macMsb:
+              msb: 15
+              len: 16
+        - offset: 1
+          name: MacAddrLSBs
+          acc: ro
+          fields:
+            macLsb:
+              msb: 31
+              len: 32
+    - index: 2
+      name: IP Address
+      registers:
+        - offset: 0
+          name: IPAddress
+          acc: rw
+          fields:
+            curIP:
+              msb: 31
+              len: 32
+    - index: 3
+      name: Static IP Address
+      registers:
+        - offset: 0
+          name: StaticIPAddress
+          acc: ro
+          fields:
+            staticIP:
+              msb: 31
+              len: 32
+    - index: 4
+      name: Subnet Mask
+      registers:
+        - offset: 0
+          name: SubnetMask
+          acc: rw
+          fields:
+            mask:
+              msb: 31
+              len: 32
+    - index: 5
+      name: Static Subnet Mask
+      registers:
+        - offset: 0
+          name: StaticSubnetMask
+          acc: ro
+          fields:
+            staticIP:
+              msb: 31
+              len: 32
+    - index: 6
+      name: Gateway Addr
+      registers:
+        - offset: 0
+          name: GatewayAddr
+          acc: rw
+          fields:
+            gateway:
+              msb: 31
+              len: 32
+    - index: 7
+      name: Static Gateway Addr
+      registers:
+        - offset: 0
+          name: StaticGatewayAddr
+          acc: ro
+          fields:
+            staticIP:
+              msb: 31
+              len: 32
+
+"0x103001":
+  name: Video Stream
+  sname: stream
+  pointers:
+    - index: 0
+      name: Description
+      registers:
+        - offset: 0
+          name: Description
+          acc: string
+    - index: 1
+      name: Max Packet Size
+      registers:
+        - offset: 0
+          name: MaxPacketSize
+          acc: rw
+          fields:
+            fireTestPkt:
+              msb: 31
+              len: 1
+            enable:
+              msb: 16
+              len: 1
+            maxPkt:
+              msb: 15
+              len: 16
+    - index: 2
+      name: Delay
+      registers:
+        - offset: 0
+          name: Delay
+          acc: rw
+          fields:
+            delay:
+              msb: 23
+              len: 24
+    - index: 3
+      name: Dest MAC Addr
+      registers:
+        - offset: 0
+          name: DestMacAddrMSBs
+          acc: rw
+          fields:
+            destMacMs:
+              msb: 15
+              len: 16
+        - offset: 1
+          name: DestMacAddrLSBs
+          acc: rw
+          fields:
+            destMacLs:
+              msb: 31
+              len: 32
+    - index: 4
+      name: Dest IP Addr
+      registers:
+        - offset: 0
+          name: DestIPAddr
+          acc: rw
+          fields:
+            destIP:
+              msb: 31
+              len: 32
+    - index: 5
+      name: Dest Port
+      registers:
+        - offset: 0
+          name: DestPort
+          acc: rw
+          fields:
+            dPort:
+              msb: 15
+              len: 16
+    - index: 6
+      name: Source Port
+      registers:
+        - offset: 0
+          name: SourcePort
+          acc: rw
+          fields:
+            sPort:
+              msb: 15
+              len: 16
+    - index: 7
+      name: Pixels Per Line (Width)
+      registers:
+        - offset: 0
+          name: PixelsPerLine
+          acc: rw
+          fields:
+            ppl:
+              msb: 15
+              len: 16
+    - index: 8
+      name: Lines Per Frame (Height)
+      registers:
+        - offset: 0
+          name: LinesPerFrame
+          acc: rw
+          fields:
+            lpf:
+              msb: 15
+              len: 16
+    - index: 9
+      name: Pixel Format
+      registers:
+        - offset: 0
+          name: PixelFormat
+          acc: rw
+          fields:
+            bpp:
+              msb: 15
+              len: 16
+    - index: 10
+      name: Acquisition Mode
+      registers:
+        - offset: 0
+          name: AcquistionMode
+          acc: rw
+          fields:
+            acqMode:
+              msb: 3
+              len: 4
+    - index: 11
+      name: X Offset
+      registers:
+        - offset: 0
+          name: XOffset
+          acc: rw
+          fields:
+            xOff:
+              msb: 15
+              len: 16
+    - index: 12
+      name: Y Offset
+      registers:
+        - offset: 0
+          name: YOffset
+          acc: rw
+          fields:
+            yOff:
+              msb: 15
+              len: 16
+    - index: 13
+      name: Test Pattern Mode
+      registers:
+        - offset: 0
+          name: TestPatternMode
+          acc: rw
+          fields:
+            tpMode:
+              msb: 3
+              len: 4
+
+"0x301001":
+  name: I2C Controller
+  sname: i2c
+  pointers:
+    - index: 0
+      name: Description
+      registers:
+        - offset: 0
+          name: Description
+          acc: string
+    - index: 1
+      name: Reg Block
+      registers:
+        - offset: 0
+          name: Status
+          acc: ro
+          fields:
+            done:
+              msb: 31
+              len: 1
+            holding:
+              msb: 30
+              len: 1
+            rate:
+              msb: 23
+              len: 4
+            maxlevel:
+              msb: 19
+              len: 4
+            txlevel:
+              msb: 15
+              len: 8
+            rxlevel:
+              msb: 7
+              len: 8
+        - offset: 1
+          name: Config
+          acc: rw
+          fields:
+            reset:
+              msb: 0
+              len: 1
+        - offset: 2
+          name: TxFIFO
+          acc: wo
+          fields:
+            stop:
+              msb: 10
+              len: 1
+            hold:
+              msb: 9
+              len: 1
+            ack:
+              msb: 8
+              len: 1
+            data:
+              msb: 7
+              len: 8
+        - offset: 3
+          name: RxFIFO
+          acc: rowc
+          fields:
+            ack:
+              msb: 8
+              len: 1
+            data:
+              msb: 7
+              len: 8
+
+"0x304001":
+  name: MIPI Port
+  sname: mipi
+  pointers:
+    - index: 0
+      name: Description
+      registers:
+        - offset: 0
+          name: Description
+          acc: string
+    - index: 1
+      name: Monitor
+      registers:
+        - offset: 0
+          name: Activity
+          acc: ro
+          fields:
+            pcx16:
+              msb: 31
+              len: 16
+            cactive:
+              msb: 9
+              len: 1
+            ccont:
+              msb: 8
+              len: 1
+            l0a:
+              msb: 7
+              len: 1
+            l1a:
+              msb: 6
+              len: 1
+            l2a:
+              msb: 5
+              len: 1
+            l3a:
+              msb: 4
+              len: 1
+            v0a:
+              msb: 3
+              len: 1
+            v1a:
+              msb: 2
+              len: 1
+            v2a:
+              msb: 1
+              len: 1
+            v3a:
+              msb: 0
+              len: 1
+        - offset: 1
+          name: LineInfo
+          acc: ro
+          fields:
+            pixelClockCount:
+              msb: 31
+              len: 16
+            bytesPerLine:
+              msb: 15
+              len: 16
+        - offset: 2
+          name: LineCount
+          acc: ro
+          fields:
+            lineCount:
+              msb: 15
+              len: 16
+        - offset: 3
+          name: DataType
+          acc: rowc
+          fields:
+            dtype0:
+              msb: 29
+              len: 6
+            dtype1:
+              msb: 21
+              len: 6
+            dtype2:
+              msb: 13
+              len: 6
+            dtype3:
+              msb: 5
+              len: 6
+    - index: 2
+      name: GPO
+      registers:
+        - offset: 0
+          name: GPO
+          acc: rw
+          fields:
+            bit3:
+              msb: 3
+              len: 1
+            bit2:
+              msb: 2
+              len: 1
+            bit1:
+              msb: 1
+              len: 1
+            en:
+              msb: 0
+              len: 1
+    - index: 3
+      name: GPI
+      registers:
+        - offset: 0
+          name: GPI
+          acc: ro
+          fields:
+            bit3:
+              msb: 3
+              len: 1
+            bit2:
+              msb: 2
+              len: 1
+            bit1:
+              msb: 1
+              len: 1
+            status:
+              msb: 0
+              len: 1
+
+"0xFFF001":
+  name: End of Features
+  sname: eof
+  pointers:
+    - index: 0
+      name: Last Static ROM Address
+      registers:
+        - offset: 0
+          name: LastStaticROMAddress
+    - index: 1
+      name: First Register Address
+      registers:
+        - offset: 0
+          name: FirstRegisterAddress
+    - index: 2
+      name: Last Register Address
+      registers:
+        - offset: 0
+          name: LastRegisterAddress
+      value: 0

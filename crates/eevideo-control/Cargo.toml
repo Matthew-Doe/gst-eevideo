@@ -9,4 +9,10 @@ description = "Control backend abstractions for the EEVideo Rust workspace"
 
 [dependencies]
 eevideo-proto = { path = "../eevideo-proto" }
+if-addrs = "0.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+socket2.workspace = true
 
+[dev-dependencies]
+tempfile = "3.23"
