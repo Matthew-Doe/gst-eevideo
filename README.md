@@ -83,16 +83,23 @@ Anything else should be converted upstream with standard elements such as
 This repository intentionally follows the currently deployed public host-side
 behavior.
 
-That means the active stream profile is:
+That means the active stream profile is the named
+`EEVideo Stream Compatibility Profile v1`.
+
+Its packet model is:
 
 - leader packet starts a frame
 - payload packets carry contiguous image bytes
 - trailer packet completes a frame
 - width, height, payload type, and pixel format are fixed after the first complete frame
 - incomplete or malformed frames are dropped
+- out-of-order payload packets are buffered within a frame until they can be
+  assembled or timed out
 
-See [docs/implementation-profile.md](docs/implementation-profile.md) for the
-normative project scope.
+See [docs/compatibility-stream-profile.md](docs/compatibility-stream-profile.md)
+for the normative packet rules and
+[docs/implementation-profile.md](docs/implementation-profile.md) for the
+project scope.
 
 ## Prerequisites
 
@@ -235,6 +242,7 @@ upstream repositories separately from that group and follow
 ## Additional Documentation
 
 - [docs/developer-guide.md](docs/developer-guide.md)
+- [docs/compatibility-stream-profile.md](docs/compatibility-stream-profile.md)
 - [docs/implementation-profile.md](docs/implementation-profile.md)
 - [docs/interop-smoke.md](docs/interop-smoke.md)
 - [docs/spec-enhancement-proposal.md](docs/spec-enhancement-proposal.md)
@@ -244,9 +252,12 @@ upstream repositories separately from that group and follow
 
 Near term:
 
+- improve Jetson cross-build validation
+
+Completed on this branch:
+
 - harden behavior under loss and reordering outside localhost
 - formalize the compatibility stream profile more clearly
-- improve Jetson cross-build validation
 - preserve a clean seam for future control-plane integration
 
 Later:

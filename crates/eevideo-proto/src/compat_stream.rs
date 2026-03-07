@@ -1,4 +1,4 @@
-use crate::{PixelFormat, PixelFormatError, VideoFrame};
+use crate::{PixelFormat, PixelFormatError, VideoFrame, COMPAT_STREAM_PROFILE};
 use core::fmt;
 
 pub const COMPAT_HEADER_SIZE: usize = 20;
@@ -181,7 +181,7 @@ pub struct CompatPacketizer {
 
 impl CompatPacketizer {
     pub fn new(mtu: usize) -> Result<Self, CompatPacketError> {
-        if mtu < COMPAT_LEADER_SIZE {
+        if mtu < COMPAT_STREAM_PROFILE.minimum_mtu() {
             return Err(CompatPacketError::InvalidMtu(mtu));
         }
         Ok(Self { mtu })

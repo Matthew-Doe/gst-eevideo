@@ -31,10 +31,11 @@ Original upstream source code and related EEVideo projects are published at:
 Use this order:
 
 1. Read [README.md](c:/devel/eevideo/README.md).
-2. Read [implementation-profile.md](c:/devel/eevideo/docs/implementation-profile.md).
-3. Build and run `cargo test --workspace`.
-4. Run the local sender/receiver smoke test from the README.
-5. Only after that, start changing code.
+2. Read [compatibility-stream-profile.md](c:/devel/eevideo/docs/compatibility-stream-profile.md).
+3. Read [implementation-profile.md](c:/devel/eevideo/docs/implementation-profile.md).
+4. Build and run `cargo test --workspace`.
+5. Run the local sender/receiver smoke test from the README.
+6. Only after that, start changing code.
 
 If you skip step 2, you can easily implement behavior that looks reasonable but
 is outside the current project scope.
@@ -156,6 +157,7 @@ IPv4 interface address.
 
 Start in:
 
+- `docs/compatibility-stream-profile.md`
 - `crates/eevideo-proto/src/compat_stream.rs`
 - `crates/eevideo-proto/src/assembler.rs`
 - `docs/implementation-profile.md`
@@ -208,6 +210,7 @@ Typical areas:
 - [Cargo.toml](c:/devel/eevideo/Cargo.toml)
 - [README.md](c:/devel/eevideo/README.md)
 - [implementation-profile.md](c:/devel/eevideo/docs/implementation-profile.md)
+- [compatibility-stream-profile.md](c:/devel/eevideo/docs/compatibility-stream-profile.md)
 - [compat_stream.rs](c:/devel/eevideo/crates/eevideo-proto/src/compat_stream.rs)
 - [assembler.rs](c:/devel/eevideo/crates/eevideo-proto/src/assembler.rs)
 - [imp.rs](c:/devel/eevideo/crates/gst-plugin-eevideo/src/eevideosrc/imp.rs)

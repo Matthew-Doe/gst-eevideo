@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use eevideo_proto::{CompatPacketizer, PayloadType, StreamStats, VideoFrame, SUPPORTED_CAPS};
+use eevideo_proto::{
+    CompatPacketizer, PayloadType, StreamProfileId, StreamStats, VideoFrame, SUPPORTED_CAPS,
+};
 use gst::glib;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
@@ -16,6 +18,10 @@ use once_cell::sync::Lazy;
 use socket2::SockRef;
 
 use crate::common::{parse_caps, FrameFormat};
+use crate::control::{
+    default_control_backend, ControlSession, SharedControlBackend, StreamConfiguration,
+    StreamFormatDescriptor,
+};
 
 #[derive(Clone, Debug)]
 struct Settings {
@@ -48,12 +54,14 @@ struct RunningState {
     socket: UdpSocket,
     next_frame_id: u32,
     negotiated_format: Option<FrameFormat>,
+    control_session: ControlSession,
 }
 
 pub struct EeVideoSink {
     settings: Mutex<Settings>,
     state: Mutex<Option<RunningState>>,
     stats: Arc<StreamStats>,
+    control: SharedControlBackend,
     unlocked: AtomicBool,
 }
 
@@ -63,6 +71,7 @@ impl Default for EeVideoSink {
             settings: Mutex::new(Settings::default()),
             state: Mutex::new(None),
             stats: Arc::new(StreamStats::default()),
+            control: default_control_backend(),
             unlocked: AtomicBool::new(false),
         }
     }
@@ -312,18 +321,34 @@ impl BaseSinkImpl for EeVideoSink {
                 )
             })?;
 
+        let mut control_session = ControlSession::new(
+            Arc::clone(&self.control),
+            build_stream_configuration(&settings, None),
+        );
+        control_session
+            .configure(control_session.config().clone())
+            .map_err(|err| {
+                gst::error_msg!(
+                    gst::ResourceError::Settings,
+                    ["failed to configure control session: {}", err]
+                )
+            })?;
+
         let mut state = self.state.lock().expect("state lock poisoned");
         *state = Some(RunningState {
             socket,
             next_frame_id: 1,
             negotiated_format: None,
+            control_session,
         });
 
         Ok(())
     }
 
     fn stop(&self) -> Result<(), gst::ErrorMessage> {
-        self.state.lock().expect("state lock poisoned").take();
+        if let Some(mut state) = self.state.lock().expect("state lock poisoned").take() {
+            let _ = state.control_session.stop();
+        }
         self.unlocked.store(false, Ordering::Relaxed);
         Ok(())
     }
@@ -361,7 +386,25 @@ impl BaseSinkImpl for EeVideoSink {
                 self.stats.record_packet_anomaly();
                 return Err(gst::FlowError::NotNegotiated);
             }
-            None => state.negotiated_format = Some(current_format),
+            None => {
+                state
+                    .control_session
+                    .configure(build_stream_configuration(
+                        &settings,
+                        Some(to_stream_format_descriptor(current_format)),
+                    ))
+                    .map_err(|_| {
+                        self.stats.record_drop();
+                        self.stats.record_packet_anomaly();
+                        gst::FlowError::Error
+                    })?;
+                state.control_session.start().map_err(|_| {
+                    self.stats.record_drop();
+                    self.stats.record_packet_anomaly();
+                    gst::FlowError::Error
+                })?;
+                state.negotiated_format = Some(current_format);
+            }
             Some(_) => {}
         }
 
@@ -433,4 +476,29 @@ fn parse_multicast_iface(
     }
 
     value.parse::<std::net::Ipv4Addr>().map(Some)
+}
+
+fn build_stream_configuration(
+    settings: &Settings,
+    format: Option<StreamFormatDescriptor>,
+) -> StreamConfiguration {
+    StreamConfiguration {
+        stream_name: format!("eevideo-compat://{}:{}", settings.host, settings.port),
+        profile: StreamProfileId::CompatibilityV1,
+        destination_host: settings.host.clone(),
+        port: u16::try_from(settings.port).expect("port is validated by the property range"),
+        bind_address: settings.bind_address.clone(),
+        packet_delay_ns: settings.packet_delay_ns,
+        max_packet_size: u16::try_from(settings.mtu).expect("mtu is validated by the property range"),
+        format,
+    }
+}
+
+fn to_stream_format_descriptor(format: FrameFormat) -> StreamFormatDescriptor {
+    StreamFormatDescriptor {
+        payload_type: PayloadType::Image,
+        pixel_format: format.pixel_format,
+        width: format.width,
+        height: format.height,
+    }
 }

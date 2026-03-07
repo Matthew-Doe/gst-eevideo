@@ -1,10 +1,16 @@
 mod assembler;
+mod compat_profile;
 mod compat_stream;
 mod pixel_format;
 mod stats;
 
 pub use assembler::{
     AssembleError, FrameAssembler, FrameDropReason, FrameEvent, FrameKey, PartialFrame,
+};
+pub use compat_profile::{
+    CompatStreamProfile, StreamProfileId, COMPAT_PROFILE_FIXED_FIELDS, COMPAT_PROFILE_NAME,
+    COMPAT_PROFILE_PACKET_TYPES, COMPAT_PROFILE_PAYLOAD_TYPES, COMPAT_PROFILE_PIXEL_FORMATS,
+    COMPAT_STREAM_PROFILE,
 };
 pub use compat_stream::{
     CompatPacket, CompatPacketError, CompatPacketizer, PacketType, PayloadType, COMPAT_HEADER_SIZE,
