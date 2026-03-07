@@ -7,6 +7,11 @@ The repository provides two elements:
 - `eevideosrc` receives uncompressed frames over UDP and outputs GStreamer video buffers
 - `eevideosink` packetizes uncompressed video buffers and transmits them over UDP
 
+The workspace now also provides two host-side tools:
+
+- `eevid` for CoAP discovery, register access, and stream control
+- `eeview` for managed live viewing and optional recording with open codecs
+
 The current focus is a functional host-side MVP built around the existing
 public compatibility stream profile rather than a full native EEVideo transport
 stack.
@@ -51,10 +56,18 @@ Explicitly out of scope for v1:
   - pixel-format mapping
   - frame assembly
   - stream statistics
+- `crates/eevideo-control`
+  - CoAP discovery and register access
+  - YAML-backed device/register metadata
+  - shared host-side control/session APIs
 - `crates/gst-plugin-eevideo`
   - the GStreamer plugin implementation
   - `eevideosrc`
   - `eevideosink`
+- `crates/eevid`
+  - discovery, describe, register read/write, and stream control CLI
+- `crates/eeview`
+  - managed live viewer and recorder CLI
 - `docs/`
   - implementation profile
   - interoperability smoke procedure
@@ -155,6 +168,12 @@ Run the workspace tests:
 
 ```sh
 cargo test --workspace
+```
+
+Build the host-side CLIs:
+
+```sh
+cargo build -p eevid -p eeview
 ```
 
 `gst-plugin-eevideo` tests load GStreamer at runtime, so the GStreamer runtime
@@ -277,6 +296,32 @@ EEVideo repository layout and spec material.
 If you want to validate against the public Go tools, clone the relevant
 upstream repositories separately from that group and follow
 [docs/interop-smoke.md](docs/interop-smoke.md).
+
+## Host Tools
+
+List discoverable devices:
+
+```sh
+cargo run -p eevid -- discover
+```
+
+Describe a specific device:
+
+```sh
+cargo run -p eevid -- --device-uri coap://192.168.1.50:5683 describe
+```
+
+Start managed viewing on a specific local receive address:
+
+```sh
+cargo run -p eeview -- --device-uri coap://192.168.1.50:5683 --bind-address 192.168.1.20 --port 5000
+```
+
+Record with open codecs only:
+
+```sh
+cargo run -p eeview -- --device-uri coap://192.168.1.50:5683 --bind-address 192.168.1.20 --record capture.mkv --encoder av1
+```
 
 ## Additional Documentation
 
