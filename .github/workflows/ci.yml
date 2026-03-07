@@ -32,7 +32,7 @@ jobs:
         run: cargo build --workspace
 
       - name: Run default plugin tests
-        run: cargo test -p gst-plugin-eevideo
+        run: cargo test -p gst-plugin-eevideo --features gst-tests
 
   jetson-cross:
     runs-on: ubuntu-24.04
