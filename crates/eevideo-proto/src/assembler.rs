@@ -160,6 +160,13 @@ impl FrameAssembler {
                     }
                 }
 
+                if data.is_empty() {
+                    stats.record_packet_anomaly();
+                    frame.last_update = now;
+                    self.frames.insert(key, frame);
+                    return Ok(None);
+                }
+
                 if frame.packet_id.checked_add(1) == Some(packet_id) {
                     if let Err(reason) = append_payload_bytes(&mut frame, packet_id, data) {
                         stats.record_packet_anomaly();
@@ -167,6 +174,14 @@ impl FrameAssembler {
                         return Ok(Some(FrameEvent::Dropped { frame_id, reason }));
                     }
                 } else {
+                    if buffered_payloads_overflow(&frame, data.len()) {
+                        stats.record_packet_anomaly();
+                        stats.record_drop();
+                        return Ok(Some(FrameEvent::Dropped {
+                            frame_id,
+                            reason: FrameDropReason::PayloadOverflow,
+                        }));
+                    }
                     frame.pending_payloads.insert(packet_id, data.to_vec());
                 }
                 frame.last_update = now;
@@ -351,6 +366,20 @@ fn flush_pending_payloads(frame: &mut PartialFrame) -> Result<(), FrameDropReaso
 
         append_payload_bytes(frame, next_packet_id, &chunk)?;
     }
+}
+
+fn buffered_payloads_overflow(frame: &PartialFrame, next_payload_len: usize) -> bool {
+    let remaining = frame.data.len().saturating_sub(frame.offset);
+    pending_payload_bytes(frame)
+        .checked_add(next_payload_len)
+        .is_none_or(|buffered| buffered > remaining)
+}
+
+fn pending_payload_bytes(frame: &PartialFrame) -> usize {
+    frame
+        .pending_payloads
+        .values()
+        .fold(0usize, |total, chunk| total.saturating_add(chunk.len()))
 }
 
 #[cfg(test)]
@@ -549,6 +578,129 @@ mod tests {
                 reason: FrameDropReason::Timeout,
             }]
         );
+    }
+
+    #[test]
+    fn drops_frame_when_buffered_reordered_payloads_exceed_remaining_capacity() {
+        let stats = StreamStats::default();
+        let mut assembler = FrameAssembler::new(Duration::from_secs(1));
+        let now = Instant::now();
+
+        assembler
+            .ingest(
+                CompatPacket::Leader {
+                    frame_id: 12,
+                    packet_id: 0,
+                    timestamp: 0,
+                    payload_type: PayloadType::Image,
+                    pixel_format: PixelFormat::Mono8,
+                    width: 4,
+                    height: 1,
+                },
+                now,
+                &stats,
+            )
+            .unwrap();
+
+        assert!(assembler
+            .ingest(
+                CompatPacket::Payload {
+                    frame_id: 12,
+                    packet_id: 2,
+                    data: vec![1, 2, 3],
+                },
+                now,
+                &stats,
+            )
+            .unwrap()
+            .is_none());
+
+        let event = assembler
+            .ingest(
+                CompatPacket::Payload {
+                    frame_id: 12,
+                    packet_id: 3,
+                    data: vec![4, 5],
+                },
+                now,
+                &stats,
+            )
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            event,
+            FrameEvent::Dropped {
+                frame_id: 12,
+                reason: FrameDropReason::PayloadOverflow,
+            }
+        );
+    }
+
+    #[test]
+    fn ignores_zero_length_payload_without_advancing_frame() {
+        let stats = StreamStats::default();
+        let mut assembler = FrameAssembler::new(Duration::from_secs(1));
+        let now = Instant::now();
+
+        assembler
+            .ingest(
+                CompatPacket::Leader {
+                    frame_id: 14,
+                    packet_id: 0,
+                    timestamp: 0,
+                    payload_type: PayloadType::Image,
+                    pixel_format: PixelFormat::Mono8,
+                    width: 2,
+                    height: 1,
+                },
+                now,
+                &stats,
+            )
+            .unwrap();
+
+        assert!(assembler
+            .ingest(
+                CompatPacket::Payload {
+                    frame_id: 14,
+                    packet_id: 1,
+                    data: vec![],
+                },
+                now,
+                &stats,
+            )
+            .unwrap()
+            .is_none());
+
+        assert!(assembler
+            .ingest(
+                CompatPacket::Trailer {
+                    frame_id: 14,
+                    packet_id: 2,
+                },
+                now,
+                &stats,
+            )
+            .unwrap()
+            .is_none());
+
+        let event = assembler
+            .ingest(
+                CompatPacket::Payload {
+                    frame_id: 14,
+                    packet_id: 1,
+                    data: vec![9, 8],
+                },
+                now,
+                &stats,
+            )
+            .unwrap()
+            .unwrap();
+
+        match event {
+            FrameEvent::Complete(frame) => assert_eq!(frame.data, vec![9, 8]),
+            other => panic!("unexpected event {other:?}"),
+        }
     }
 
     #[test]
