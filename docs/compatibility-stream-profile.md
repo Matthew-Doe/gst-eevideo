@@ -63,10 +63,14 @@ payload packets.
 - trailer packets received without an active leader are dropped
 - a duplicate leader for an active `frame_id` drops the previous partial frame
   and restarts assembly from the new leader
+- zero-length payload packets are ignored as anomalies
 - duplicate payload packets are ignored as anomalies
-- out-of-order payload packets are buffered by `packet_id`
+- out-of-order payload packets are buffered by `packet_id`, but only within the
+  remaining expected frame capacity
 - a trailer closes the packet-id range for the frame, but the frame is not
   emitted until all missing payload packets up to that trailer have arrived
+- a frame is dropped immediately if buffered out-of-order payload bytes already
+  exceed the remaining expected frame size
 - payload packets at or beyond the declared trailer boundary drop the frame
 - a frame is emitted only when the trailer has been seen and the received image
   byte count exactly matches the expected payload length for the negotiated

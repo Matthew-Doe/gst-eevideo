@@ -47,8 +47,9 @@ rules:
 - leader, payload, and trailer are the only packet classes
 - width, height, payload type, and pixel format are fixed after the first
   complete frame
+- zero-length payload packets are ignored as anomalies
 - payload packets may arrive out of order within a frame and are buffered until
-  gaps are filled or timeout occurs
+  gaps are filled, bounded overflow is detected, or timeout occurs
 - the trailer closes the packet-id range for the frame, but does not complete
   the frame unless all prior payload packets have arrived and the final byte
   count matches the expected image size

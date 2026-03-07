@@ -90,11 +90,13 @@ Its packet model is:
 
 - leader packet starts a frame
 - payload packets carry contiguous image bytes
-- trailer packet completes a frame
+- trailer packet closes the frame packet range, but completion still waits for
+  any missing payload packets
 - width, height, payload type, and pixel format are fixed after the first complete frame
 - incomplete or malformed frames are dropped
+- zero-length payload packets are ignored as anomalies
 - out-of-order payload packets are buffered within a frame until they can be
-  assembled or timed out
+  assembled, dropped for bounded overflow, or timed out
 
 See [docs/compatibility-stream-profile.md](docs/compatibility-stream-profile.md)
 for the normative packet rules and
@@ -110,17 +112,20 @@ Recommended environment:
 - Rust stable with `x86_64-pc-windows-msvc`
 - Visual Studio Build Tools with the C++ workload
 - GStreamer MSVC runtime and development packages, `1.26+`
-- `pkg-config`
+- a Windows-safe `pkg-config`
 
 Typical environment setup:
 
 ```powershell
-$env:PKG_CONFIG_PATH = "C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig"
-$env:Path = "C:\gstreamer\1.0\msvc_x86_64\bin;$env:Path"
+$env:PKG_CONFIG = "C:\ProgramData\chocolatey\bin\pkg-config.exe"
+$env:PKG_CONFIG_PATH = "C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig"
+$env:Path = "C:\Program Files\gstreamer\1.0\msvc_x86_64\bin;$env:Path"
 ```
 
-If `pkg-config` has trouble with spaces in `Program Files`, use a no-space
-mirror or junction as a local workaround.
+The Chocolatey `pkg-config` binary works with the standard `Program Files`
+install path. Some MSYS2 `pkg-config` builds mishandle that path on Windows. If
+you are stuck with one of those builds, use a no-space mirror or junction only
+as a fallback workaround.
 
 ### Linux
 
@@ -151,6 +156,9 @@ Run the workspace tests:
 ```sh
 cargo test --workspace
 ```
+
+`gst-plugin-eevideo` tests load GStreamer at runtime, so the GStreamer runtime
+DLL directory must be on `PATH` when you run the test binaries.
 
 Run the feature-gated GStreamer integration tests:
 

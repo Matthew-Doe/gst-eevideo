@@ -49,13 +49,15 @@ Required:
 - Rust stable with `x86_64-pc-windows-msvc`
 - Visual Studio Build Tools with the C++ workload
 - GStreamer MSVC runtime and development packages
-- `pkg-config`
+- a Windows-safe `pkg-config`
 
 Practical note:
 
-- Some Windows `pkg-config` setups handle `Program Files` poorly. If that
-  happens, use a no-space mirror or junction for the GStreamer install and point
-  `PKG_CONFIG_PATH` there.
+- The Chocolatey `pkg-config` binary works with the standard `Program Files`
+  GStreamer install path.
+- Some MSYS2 `pkg-config` builds handle `Program Files` poorly. If you are
+  stuck with one of those builds, use a no-space mirror or junction only as a
+  fallback and point `PKG_CONFIG_PATH` there.
 
 ### Linux
 
@@ -70,15 +72,17 @@ Required:
 ### Windows PowerShell
 
 ```powershell
-$env:PKG_CONFIG_PATH = "C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig"
-$env:Path = "C:\gstreamer\1.0\msvc_x86_64\bin;$env:Path"
+$env:PKG_CONFIG = "C:\ProgramData\chocolatey\bin\pkg-config.exe"
+$env:PKG_CONFIG_PATH = "C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig"
+$env:Path = "C:\Program Files\gstreamer\1.0\msvc_x86_64\bin;$env:Path"
 ```
 
 ### Windows cmd.exe
 
 ```cmd
-set PKG_CONFIG_PATH=C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig
-set PATH=C:\gstreamer\1.0\msvc_x86_64\bin;%PATH%
+set PKG_CONFIG=C:\ProgramData\chocolatey\bin\pkg-config.exe
+set PKG_CONFIG_PATH=C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig
+set PATH=C:\Program Files\gstreamer\1.0\msvc_x86_64\bin;%PATH%
 ```
 
 ## Build And Test Workflow
@@ -88,6 +92,9 @@ set PATH=C:\gstreamer\1.0\msvc_x86_64\bin;%PATH%
 ```sh
 cargo test --workspace
 ```
+
+`gst-plugin-eevideo` tests load GStreamer at runtime, so the GStreamer runtime
+DLL directory must already be on `PATH` before you run them.
 
 ### Release build
 
@@ -255,9 +262,11 @@ Use this order for most changes:
 
 Check:
 
+- `PKG_CONFIG`
 - `PKG_CONFIG_PATH`
 - whether GStreamer dev packages are installed
-- whether your Windows install path has spaces that your `pkg-config` build mishandles
+- whether the GStreamer runtime `bin` directory is on `PATH`
+- whether your Windows `pkg-config` build mishandles `Program Files`
 
 ### `cl.exe` is missing on Windows
 
