@@ -212,6 +212,16 @@ Practical guidance:
 - only use larger `mtu` values after jumbo frames are enabled end to end on
   both NICs and the switch
 
+Observed result on a direct Windows-to-Windows Ethernet link with jumbo frames
+validated by `ping -f -l 8972`:
+
+- `1280x720@60 UYVY` with `mtu=8900` sustained roughly `44` to `54` fps
+- `mtu=1400` remained packet-rate limited and is unusable for higher-resolution,
+  higher-framerate operation in the current implementation on that setup
+
+Treat `~38 fps` as a practical minimum bar for the current jumbo-frame LAN smoke
+test. `60 fps` remains the target, not the guaranteed floor.
+
 If you want to measure the current sender/receiver stack locally before running
 across the LAN, there is a manual feature-gated harness:
 

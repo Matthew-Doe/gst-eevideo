@@ -127,6 +127,13 @@ Sender:
 gst-launch-1.0 videotestsrc ! video/x-raw,format=RGB,width=640,height=480,framerate=30/1 ! eevideosink host=127.0.0.1 port=5000 mtu=4000
 ```
 
+For high-throughput LAN tests, prefer `UYVY` rather than `RGB`. On a direct
+Windows-to-Windows Ethernet link with jumbo frames working end to end, the
+current implementation sustained roughly `44` to `54` fps at
+`1280x720@60 UYVY` with `mtu=8900`. Standard-MTU settings such as `mtu=1400`
+are still useful for compatibility testing, but they are packet-rate limited
+for this workload.
+
 ### Multiple receivers on one port
 
 If you want more than one `eevideosrc` process to receive the same stream on the
