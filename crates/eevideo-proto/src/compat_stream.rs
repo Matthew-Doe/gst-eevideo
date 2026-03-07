@@ -1,5 +1,6 @@
 use crate::{PixelFormat, PixelFormatError, VideoFrame, COMPAT_STREAM_PROFILE};
 use core::fmt;
+use std::convert::Infallible;
 
 pub const COMPAT_HEADER_SIZE: usize = 20;
 pub const COMPAT_LEADER_SIZE: usize = 44;
@@ -27,6 +28,143 @@ impl PayloadType {
 
     pub fn as_u16(self) -> u16 {
         self as u16
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VideoFrameRef<'a> {
+    pub frame_id: u32,
+    pub timestamp: u64,
+    pub width: u32,
+    pub height: u32,
+    pub pixel_format: PixelFormat,
+    pub payload_type: PayloadType,
+    pub data: &'a [u8],
+}
+
+impl<'a> From<&'a VideoFrame> for VideoFrameRef<'a> {
+    fn from(frame: &'a VideoFrame) -> Self {
+        Self {
+            frame_id: frame.frame_id,
+            timestamp: frame.timestamp,
+            width: frame.width,
+            height: frame.height,
+            pixel_format: frame.pixel_format,
+            payload_type: frame.payload_type,
+            data: &frame.data,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompatPacketView<'a> {
+    Leader {
+        frame_id: u32,
+        packet_id: u32,
+        timestamp: u64,
+        payload_type: PayloadType,
+        pixel_format: PixelFormat,
+        width: u32,
+        height: u32,
+    },
+    Payload {
+        frame_id: u32,
+        packet_id: u32,
+        data: &'a [u8],
+    },
+    Trailer {
+        frame_id: u32,
+        packet_id: u32,
+    },
+}
+
+impl<'a> CompatPacketView<'a> {
+    pub fn parse(buf: &'a [u8]) -> Result<Self, CompatPacketError> {
+        if buf.len() < COMPAT_HEADER_SIZE {
+            return Err(CompatPacketError::PacketTooSmall {
+                len: buf.len(),
+                expected: COMPAT_HEADER_SIZE,
+            });
+        }
+
+        let packet_type = buf[4] & 0x0f;
+        let frame_id = read_u32(buf, 12);
+        let packet_id = read_u32(buf, 16);
+
+        match packet_type {
+            x if x == PacketType::Leader as u8 => {
+                if buf.len() < COMPAT_LEADER_SIZE {
+                    return Err(CompatPacketError::PacketTooSmall {
+                        len: buf.len(),
+                        expected: COMPAT_LEADER_SIZE,
+                    });
+                }
+
+                let payload_type_raw = read_u16(buf, 22);
+                let payload_type = PayloadType::from_u16(payload_type_raw)
+                    .ok_or(CompatPacketError::UnsupportedPayloadType(payload_type_raw))?;
+                let timestamp = read_u64(buf, 24);
+                let pixel_format = PixelFormat::from_pfnc(read_u32(buf, 32))
+                    .map_err(CompatPacketError::UnsupportedPixelFormat)?;
+                let width = read_u32(buf, 36);
+                let height = read_u32(buf, 40);
+
+                Ok(Self::Leader {
+                    frame_id,
+                    packet_id,
+                    timestamp,
+                    payload_type,
+                    pixel_format,
+                    width,
+                    height,
+                })
+            }
+            x if x == PacketType::Payload as u8 => Ok(Self::Payload {
+                frame_id,
+                packet_id,
+                data: &buf[COMPAT_HEADER_SIZE..],
+            }),
+            x if x == PacketType::Trailer as u8 => Ok(Self::Trailer { frame_id, packet_id }),
+            x => Err(CompatPacketError::UnknownPacketType(x)),
+        }
+    }
+
+    pub fn into_owned(self) -> CompatPacket {
+        match self {
+            Self::Leader {
+                frame_id,
+                packet_id,
+                timestamp,
+                payload_type,
+                pixel_format,
+                width,
+                height,
+            } => CompatPacket::Leader {
+                frame_id,
+                packet_id,
+                timestamp,
+                payload_type,
+                pixel_format,
+                width,
+                height,
+            },
+            Self::Payload {
+                frame_id,
+                packet_id,
+                data,
+            } => CompatPacket::Payload {
+                frame_id,
+                packet_id,
+                data: data.to_vec(),
+            },
+            Self::Trailer {
+                frame_id,
+                packet_id,
+            } => CompatPacket::Trailer {
+                frame_id,
+                packet_id,
+            },
+        }
     }
 }
 
@@ -81,58 +219,35 @@ impl fmt::Display for CompatPacketError {
 
 impl std::error::Error for CompatPacketError {}
 
-impl CompatPacket {
-    pub fn parse(buf: &[u8]) -> Result<Self, CompatPacketError> {
-        if buf.len() < COMPAT_HEADER_SIZE {
-            return Err(CompatPacketError::PacketTooSmall {
-                len: buf.len(),
-                expected: COMPAT_HEADER_SIZE,
-            });
-        }
+#[derive(Debug)]
+pub enum CompatPacketEmitError<E> {
+    Packet(CompatPacketError),
+    Emit(E),
+}
 
-        let packet_type = buf[4] & 0x0f;
-        let frame_id = read_u32(buf, 12);
-        let packet_id = read_u32(buf, 16);
+impl<E> From<CompatPacketError> for CompatPacketEmitError<E> {
+    fn from(value: CompatPacketError) -> Self {
+        Self::Packet(value)
+    }
+}
 
-        match packet_type {
-            x if x == PacketType::Leader as u8 => {
-                if buf.len() < COMPAT_LEADER_SIZE {
-                    return Err(CompatPacketError::PacketTooSmall {
-                        len: buf.len(),
-                        expected: COMPAT_LEADER_SIZE,
-                    });
-                }
-
-                let payload_type_raw = read_u16(buf, 22);
-                let payload_type = PayloadType::from_u16(payload_type_raw)
-                    .ok_or(CompatPacketError::UnsupportedPayloadType(payload_type_raw))?;
-                let timestamp = read_u64(buf, 24);
-                let pixel_format = PixelFormat::from_pfnc(read_u32(buf, 32))
-                    .map_err(CompatPacketError::UnsupportedPixelFormat)?;
-                let width = read_u32(buf, 36);
-                let height = read_u32(buf, 40);
-
-                Ok(Self::Leader {
-                    frame_id,
-                    packet_id,
-                    timestamp,
-                    payload_type,
-                    pixel_format,
-                    width,
-                    height,
-                })
-            }
-            x if x == PacketType::Payload as u8 => Ok(Self::Payload {
-                frame_id,
-                packet_id,
-                data: buf[COMPAT_HEADER_SIZE..].to_vec(),
-            }),
-            x if x == PacketType::Trailer as u8 => Ok(Self::Trailer { frame_id, packet_id }),
-            x => Err(CompatPacketError::UnknownPacketType(x)),
+impl<E: fmt::Display> fmt::Display for CompatPacketEmitError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Packet(err) => err.fmt(f),
+            Self::Emit(err) => err.fmt(f),
         }
     }
+}
 
-    pub fn to_bytes(&self) -> Vec<u8> {
+impl<E: std::error::Error + 'static> std::error::Error for CompatPacketEmitError<E> {}
+
+impl CompatPacket {
+    pub fn parse(buf: &[u8]) -> Result<Self, CompatPacketError> {
+        CompatPacketView::parse(buf).map(CompatPacketView::into_owned)
+    }
+
+    pub fn as_view(&self) -> CompatPacketView<'_> {
         match self {
             Self::Leader {
                 frame_id,
@@ -142,32 +257,70 @@ impl CompatPacket {
                 pixel_format,
                 width,
                 height,
+            } => CompatPacketView::Leader {
+                frame_id: *frame_id,
+                packet_id: *packet_id,
+                timestamp: *timestamp,
+                payload_type: *payload_type,
+                pixel_format: *pixel_format,
+                width: *width,
+                height: *height,
+            },
+            Self::Payload {
+                frame_id,
+                packet_id,
+                data,
+            } => CompatPacketView::Payload {
+                frame_id: *frame_id,
+                packet_id: *packet_id,
+                data,
+            },
+            Self::Trailer {
+                frame_id,
+                packet_id,
+            } => CompatPacketView::Trailer {
+                frame_id: *frame_id,
+                packet_id: *packet_id,
+            },
+        }
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self.as_view() {
+            CompatPacketView::Leader {
+                frame_id,
+                packet_id,
+                timestamp,
+                payload_type,
+                pixel_format,
+                width,
+                height,
             } => {
                 let mut buf = vec![0u8; COMPAT_LEADER_SIZE];
-                write_header(&mut buf, PacketType::Leader, *frame_id, *packet_id);
+                write_header(&mut buf, PacketType::Leader, frame_id, packet_id);
                 write_u16(&mut buf, 22, payload_type.as_u16());
-                write_u64(&mut buf, 24, *timestamp);
+                write_u64(&mut buf, 24, timestamp);
                 write_u32(&mut buf, 32, pixel_format.pfnc());
-                write_u32(&mut buf, 36, *width);
-                write_u32(&mut buf, 40, *height);
+                write_u32(&mut buf, 36, width);
+                write_u32(&mut buf, 40, height);
                 buf
             }
-            Self::Payload {
+            CompatPacketView::Payload {
                 frame_id,
                 packet_id,
                 data,
             } => {
                 let mut buf = vec![0u8; COMPAT_HEADER_SIZE + data.len()];
-                write_header(&mut buf, PacketType::Payload, *frame_id, *packet_id);
+                write_header(&mut buf, PacketType::Payload, frame_id, packet_id);
                 buf[COMPAT_HEADER_SIZE..].copy_from_slice(data);
                 buf
             }
-            Self::Trailer {
+            CompatPacketView::Trailer {
                 frame_id,
                 packet_id,
             } => {
                 let mut buf = vec![0u8; COMPAT_TRAILER_SIZE];
-                write_header(&mut buf, PacketType::Trailer, *frame_id, *packet_id);
+                write_header(&mut buf, PacketType::Trailer, frame_id, packet_id);
                 buf
             }
         }
@@ -187,44 +340,59 @@ impl CompatPacketizer {
         Ok(Self { mtu })
     }
 
-    pub fn packetize(&self, frame: &VideoFrame) -> Result<Vec<Vec<u8>>, CompatPacketError> {
-        let mut packets = Vec::new();
-        packets.push(
-            CompatPacket::Leader {
-                frame_id: frame.frame_id,
-                packet_id: 0,
-                timestamp: frame.timestamp,
-                payload_type: frame.payload_type,
-                pixel_format: frame.pixel_format,
-                width: frame.width,
-                height: frame.height,
-            }
-            .to_bytes(),
-        );
+    pub fn payload_chunk_len(&self) -> usize {
+        self.mtu - COMPAT_HEADER_SIZE
+    }
 
-        let chunk_len = self.mtu - COMPAT_HEADER_SIZE;
+    pub fn emit_packets<E, F>(
+        &self,
+        frame: VideoFrameRef<'_>,
+        scratch: &mut Vec<u8>,
+        mut emit: F,
+    ) -> Result<(), CompatPacketEmitError<E>>
+    where
+        F: FnMut(&[u8]) -> Result<(), E>,
+    {
+        let mut leader = [0u8; COMPAT_LEADER_SIZE];
+        write_header(&mut leader, PacketType::Leader, frame.frame_id, 0);
+        write_u16(&mut leader, 22, frame.payload_type.as_u16());
+        write_u64(&mut leader, 24, frame.timestamp);
+        write_u32(&mut leader, 32, frame.pixel_format.pfnc());
+        write_u32(&mut leader, 36, frame.width);
+        write_u32(&mut leader, 40, frame.height);
+        emit(&leader).map_err(CompatPacketEmitError::Emit)?;
+
         let mut packet_id = 1u32;
+        let chunk_len = self.payload_chunk_len();
+        scratch.clear();
+        scratch.reserve(self.mtu.saturating_sub(scratch.capacity()));
 
         for chunk in frame.data.chunks(chunk_len) {
-            packets.push(
-                CompatPacket::Payload {
-                    frame_id: frame.frame_id,
-                    packet_id,
-                    data: chunk.to_vec(),
-                }
-                .to_bytes(),
-            );
-            packet_id += 1;
+            scratch.resize(COMPAT_HEADER_SIZE + chunk.len(), 0);
+            write_header(scratch, PacketType::Payload, frame.frame_id, packet_id);
+            scratch[COMPAT_HEADER_SIZE..].copy_from_slice(chunk);
+            emit(scratch.as_slice()).map_err(CompatPacketEmitError::Emit)?;
+            packet_id = packet_id.wrapping_add(1);
         }
 
-        packets.push(
-            CompatPacket::Trailer {
-                frame_id: frame.frame_id,
-                packet_id,
-            }
-            .to_bytes(),
-        );
+        let mut trailer = [0u8; COMPAT_TRAILER_SIZE];
+        write_header(&mut trailer, PacketType::Trailer, frame.frame_id, packet_id);
+        emit(&trailer).map_err(CompatPacketEmitError::Emit)?;
 
+        Ok(())
+    }
+
+    pub fn packetize(&self, frame: &VideoFrame) -> Result<Vec<Vec<u8>>, CompatPacketError> {
+        let mut packets = Vec::new();
+        let mut scratch = Vec::with_capacity(self.mtu);
+        self.emit_packets(VideoFrameRef::from(frame), &mut scratch, |packet| {
+            packets.push(packet.to_vec());
+            Ok::<(), Infallible>(())
+        })
+        .map_err(|err| match err {
+            CompatPacketEmitError::Packet(err) => err,
+            CompatPacketEmitError::Emit(err) => match err {},
+        })?;
         Ok(packets)
     }
 }
@@ -275,7 +443,7 @@ fn write_header(buf: &mut [u8], packet_type: PacketType, frame_id: u32, packet_i
 
 #[cfg(test)]
 mod tests {
-    use super::{CompatPacket, CompatPacketizer, PayloadType};
+    use super::{CompatPacket, CompatPacketView, CompatPacketizer, PayloadType, VideoFrameRef};
     use crate::{PixelFormat, VideoFrame};
 
     #[test]
@@ -292,6 +460,52 @@ mod tests {
 
         let bytes = packet.to_bytes();
         assert_eq!(CompatPacket::parse(&bytes).unwrap(), packet);
+    }
+
+    #[test]
+    fn borrowed_payload_parser_matches_owned_parser() {
+        let packet = CompatPacket::Payload {
+            frame_id: 7,
+            packet_id: 3,
+            data: vec![1, 2, 3, 4],
+        };
+        let bytes = packet.to_bytes();
+
+        assert_eq!(
+            CompatPacketView::parse(&bytes).unwrap(),
+            CompatPacketView::Payload {
+                frame_id: 7,
+                packet_id: 3,
+                data: &[1, 2, 3, 4],
+            }
+        );
+        assert_eq!(CompatPacket::parse(&bytes).unwrap(), packet);
+    }
+
+    #[test]
+    fn emit_packets_matches_owned_packetize() {
+        let frame = VideoFrame {
+            frame_id: 4,
+            timestamp: 55,
+            width: 32,
+            height: 8,
+            pixel_format: PixelFormat::Uyvy,
+            payload_type: PayloadType::Image,
+            data: vec![0x2a; 32 * 8 * 2],
+        };
+
+        let packetizer = CompatPacketizer::new(128).unwrap();
+        let expected = packetizer.packetize(&frame).unwrap();
+        let mut emitted = Vec::new();
+        let mut scratch = Vec::new();
+        packetizer
+            .emit_packets(VideoFrameRef::from(&frame), &mut scratch, |packet| {
+                emitted.push(packet.to_vec());
+                Ok::<(), std::convert::Infallible>(())
+            })
+            .unwrap();
+
+        assert_eq!(emitted, expected);
     }
 
     #[test]

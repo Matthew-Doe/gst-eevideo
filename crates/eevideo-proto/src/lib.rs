@@ -13,8 +13,9 @@ pub use compat_profile::{
     COMPAT_STREAM_PROFILE,
 };
 pub use compat_stream::{
-    CompatPacket, CompatPacketError, CompatPacketizer, PacketType, PayloadType, COMPAT_HEADER_SIZE,
-    COMPAT_LEADER_SIZE, COMPAT_TRAILER_SIZE,
+    CompatPacket, CompatPacketEmitError, CompatPacketError, CompatPacketView, CompatPacketizer,
+    PacketType, PayloadType, VideoFrameRef, COMPAT_HEADER_SIZE, COMPAT_LEADER_SIZE,
+    COMPAT_TRAILER_SIZE,
 };
 pub use pixel_format::{PixelFormat, PixelFormatError, SUPPORTED_CAPS};
 pub use stats::StreamStats;
