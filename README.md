@@ -15,7 +15,8 @@ The workspace now also provides two host-side tools:
 It also provides two device daemons:
 
 - `eefakedev` for a pure-Rust test-pattern EEVideo device you can run on a second machine
-- `eedeviced` for a single-stream EEVideo device daemon with synthetic and Jetson Argus inputs
+- `eedeviced` for a single-stream EEVideo device daemon with synthetic, V4L2, generic
+  GStreamer, and Jetson Argus providers
 
 The current focus is a functional host-side MVP built around the existing
 public compatibility stream profile rather than a full native EEVideo transport
@@ -366,31 +367,63 @@ cargo run -p eeview -- --device-uri coap://192.168.1.50:5683 --bind-address 192.
 That flow uses the CoAP/register control path to configure `PC1` and then starts a unicast
 compatibility stream carrying the animated test pattern.
 
-## Jetson Orin Device Workflow
+## EEVideo Device Providers
 
 For the real single-stream device daemon, use `eedeviced`.
+
+The current providers are:
+
+- `synthetic` for local testing and protocol validation
+- `v4l2` for Linux webcams and capture devices
+- `pipeline` for arbitrary GStreamer pipelines that expose `appsink name=framesink`
+- `argus` for Jetson Orin CSI capture through `nvarguscamerasrc`
+
+The device stays fixed to one configured width, height, and pixel format per
+process start. Unsupported host-side width, height, and pixel-format writes are
+rejected by applied-value mismatch.
 
 Synthetic mode is useful on any host:
 
 ```sh
-cargo run -p eedeviced -- --bind 127.0.0.1:5683 --input synthetic
+cargo run -p eedeviced -- --bind 127.0.0.1:5683 --input synthetic --pixel-format mono8
+```
+
+Generic V4L2 mode is the first Linux hardware path:
+
+```sh
+./eedeviced --bind 0.0.0.0:5683 --advertise-address 192.168.1.50 --iface eth0 --input v4l2 --device /dev/video0 --pixel-format gray16le --width 640 --height 480 --fps 30 --mtu 1200
+```
+
+Generic GStreamer mode is the escape hatch for unusual sources:
+
+```sh
+./eedeviced --bind 0.0.0.0:5683 --advertise-address 192.168.1.50 --iface eth0 --input pipeline --pixel-format bayer-bg8 --width 1920 --height 1080 --fps 30 --pipeline "videotestsrc is-live=true ! video/x-bayer,format=bggr,width=1920,height=1080,framerate=30/1 ! appsink name=framesink sync=false max-buffers=1 drop=true"
 ```
 
 Jetson Argus mode is the intended CSI camera path:
 
 ```sh
-./eedeviced --bind 0.0.0.0:5683 --advertise-address 192.168.1.50 --iface eth0 --input argus --sensor-id 0 --width 1280 --height 720 --fps 30 --mtu 1200
+./eedeviced --bind 0.0.0.0:5683 --advertise-address 192.168.1.50 --iface eth0 --input argus --sensor-id 0 --pixel-format uyvy --width 1280 --height 720 --fps 30 --mtu 1200
 ```
 
+See [docs/eedeviced-provider-guide.md](docs/eedeviced-provider-guide.md) for the
+provider matrix and example commands.
+For a first-time non-Jetson bring-up flow, use
+[docs/non-jetson-device-first-time-setup.md](docs/non-jetson-device-first-time-setup.md).
 See [docs/jetson-orin-device-bringup.md](docs/jetson-orin-device-bringup.md) for the full
 deploy and verification workflow.
+For the complete first-time setup path, use
+[docs/jetson-orin-first-time-setup.md](docs/jetson-orin-first-time-setup.md).
 
 ## Additional Documentation
 
 - [docs/developer-guide.md](docs/developer-guide.md)
 - [docs/compatibility-stream-profile.md](docs/compatibility-stream-profile.md)
+- [docs/eedeviced-provider-guide.md](docs/eedeviced-provider-guide.md)
+- [docs/non-jetson-device-first-time-setup.md](docs/non-jetson-device-first-time-setup.md)
 - [docs/implementation-profile.md](docs/implementation-profile.md)
 - [docs/interop-smoke.md](docs/interop-smoke.md)
+- [docs/jetson-orin-first-time-setup.md](docs/jetson-orin-first-time-setup.md)
 - [docs/jetson-orin-device-bringup.md](docs/jetson-orin-device-bringup.md)
 - [docs/spec-enhancement-proposal.md](docs/spec-enhancement-proposal.md)
 - [docs/async-metadata-layout-plan.md](docs/async-metadata-layout-plan.md)

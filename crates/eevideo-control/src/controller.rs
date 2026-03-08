@@ -175,7 +175,11 @@ impl DeviceController {
         let endpoint = parse_device_endpoint(&target.device_uri)?;
         let device = self.backend.load_or_create_device_config(&endpoint)?;
         let client = RegisterClient::new(
-            local_bind_addr(bind_address, self.backend.config().local_port, endpoint.addr),
+            local_bind_addr(
+                bind_address,
+                self.backend.config().local_port,
+                endpoint.addr,
+            ),
             endpoint.addr,
         )
         .with_timeout(self.backend.config().request_timeout);

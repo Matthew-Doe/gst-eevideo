@@ -119,7 +119,6 @@ impl EeVideoSrc {
             stream_name,
         };
     }
-
 }
 
 #[glib::object_subclass]
@@ -345,15 +344,20 @@ impl BaseSrcImpl for EeVideoSrc {
         let mut control_session = None;
         let mut expected_format = None;
         if control.enabled {
-            let control_request = build_stream_configuration(&settings, local_addr, &control.stream_name)
-                .map_err(|err| {
-                    gst::error_msg!(
-                        gst::ResourceError::Settings,
-                        ["failed to build managed control request: {}", err]
-                    )
-                })?;
-            let mut session =
-                ControlSession::new(Arc::clone(&control.backend), control.target.clone(), control_request.clone());
+            let control_request =
+                build_stream_configuration(&settings, local_addr, &control.stream_name).map_err(
+                    |err| {
+                        gst::error_msg!(
+                            gst::ResourceError::Settings,
+                            ["failed to build managed control request: {}", err]
+                        )
+                    },
+                )?;
+            let mut session = ControlSession::new(
+                Arc::clone(&control.backend),
+                control.target.clone(),
+                control_request.clone(),
+            );
             session.describe().map_err(|err| {
                 gst::error_msg!(
                     gst::ResourceError::Settings,
@@ -369,7 +373,10 @@ impl BaseSrcImpl for EeVideoSrc {
             if applied.profile != StreamProfileId::CompatibilityV1 {
                 return Err(gst::error_msg!(
                     gst::ResourceError::Settings,
-                    ["managed control applied unsupported profile {:?}", applied.profile]
+                    [
+                        "managed control applied unsupported profile {:?}",
+                        applied.profile
+                    ]
                 ));
             }
             expected_format = applied.format.clone();
@@ -708,10 +715,7 @@ fn build_stream_configuration(
     })
 }
 
-fn frame_matches_expected_format(
-    frame: &VideoFrame,
-    expected: &StreamFormatDescriptor,
-) -> bool {
+fn frame_matches_expected_format(frame: &VideoFrame, expected: &StreamFormatDescriptor) -> bool {
     frame.payload_type == PayloadType::Image
         && frame.payload_type == expected.payload_type
         && frame.pixel_format == expected.pixel_format

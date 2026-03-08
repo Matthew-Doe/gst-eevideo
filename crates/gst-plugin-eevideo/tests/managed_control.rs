@@ -107,10 +107,8 @@ fn source_rejects_frames_that_do_not_match_applied_control_format() {
     pipeline.set_state(gst::State::Playing).unwrap();
 
     let bus = pipeline.bus().unwrap();
-    let message = bus.timed_pop_filtered(
-        gst::ClockTime::from_seconds(3),
-        &[gst::MessageType::Error],
-    );
+    let message =
+        bus.timed_pop_filtered(gst::ClockTime::from_seconds(3), &[gst::MessageType::Error]);
 
     pipeline.set_state(gst::State::Null).unwrap();
 

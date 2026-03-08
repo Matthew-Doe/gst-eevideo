@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use eevideo_control::coap::{CODE_CHANGED, CODE_CONTENT, CODE_GET, CODE_PUT};
-use eevideo_control::discovery::{DISCOVERY_MULTICAST_ADDR, DISCOVERY_PORT, DISCOVERY_RESOURCE_TYPE};
+use eevideo_control::discovery::{
+    DISCOVERY_MULTICAST_ADDR, DISCOVERY_PORT, DISCOVERY_RESOURCE_TYPE,
+};
 use eevideo_control::register::RegisterReadKind;
 use eevideo_control::{
     CoapMessage, CoapMessageType, CoapOption, OPTION_EEV_BINARY_ADDRESS, OPTION_EEV_REG_ACCESS,
@@ -133,7 +135,10 @@ impl SyntheticCaptureBackend {
 
 impl CaptureBackend for SyntheticCaptureBackend {
     fn start_capture(&mut self, config: CaptureConfiguration) -> Result<()> {
-        let transmit_pixel_format = self.config.transmit_pixel_format.unwrap_or(config.pixel_format);
+        let transmit_pixel_format = self
+            .config
+            .transmit_pixel_format
+            .unwrap_or(config.pixel_format);
         transmit_pixel_format
             .payload_len(config.width, config.height)
             .context("invalid synthetic capture dimensions")?;
@@ -161,7 +166,8 @@ impl CaptureBackend for SyntheticCaptureBackend {
             .state
             .as_mut()
             .ok_or_else(|| anyhow!("synthetic capture is not running"))?;
-        let frame_interval = Duration::from_nanos(1_000_000_000u64 / u64::from(state.requested.fps));
+        let frame_interval =
+            Duration::from_nanos(1_000_000_000u64 / u64::from(state.requested.fps));
         if let Some(last_frame_at) = state.last_frame_at {
             let elapsed = last_frame_at.elapsed();
             if elapsed < frame_interval {
@@ -178,7 +184,11 @@ impl CaptureBackend for SyntheticCaptureBackend {
 
         Ok(VideoFrame {
             frame_id,
-            timestamp: state.started_at.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64,
+            timestamp: state
+                .started_at
+                .elapsed()
+                .as_nanos()
+                .min(u128::from(u64::MAX)) as u64,
             width,
             height,
             pixel_format,
@@ -243,7 +253,9 @@ impl DeviceRuntime {
             .context("failed to configure device socket timeout")?;
         maybe_join_discovery_multicast(&socket, &selected_interface)?;
 
-        let local_addr = socket.local_addr().context("failed to read device local address")?;
+        let local_addr = socket
+            .local_addr()
+            .context("failed to read device local address")?;
         let state = Arc::new((
             Mutex::new(DeviceState {
                 registers: build_registers(&config),
@@ -266,7 +278,10 @@ impl DeviceRuntime {
         ));
         let uri = format!(
             "coap://{}",
-            SocketAddr::new(IpAddr::V4(advertised_ip(&config, &local_addr)?), local_addr.port())
+            SocketAddr::new(
+                IpAddr::V4(advertised_ip(&config, &local_addr)?),
+                local_addr.port()
+            )
         );
         let sender_join = Some(spawn_sender_loop(
             config,
@@ -306,7 +321,11 @@ impl DeviceRuntime {
 
     pub fn registers(&self) -> BTreeMap<u32, u32> {
         let (state, _) = &*self.state;
-        state.lock().expect("device state lock poisoned").registers.clone()
+        state
+            .lock()
+            .expect("device state lock poisoned")
+            .registers
+            .clone()
     }
 
     pub fn shutdown(&mut self) {
@@ -333,14 +352,11 @@ impl Drop for DeviceRuntime {
 }
 
 fn build_strings(config: &DeviceRuntimeConfig) -> BTreeMap<u32, Vec<u8>> {
-    BTreeMap::from([(
-        STREAM_DESC_ADDR,
-        {
-            let mut value = format!("EEVideo {}", config.stream_name).into_bytes();
-            value.push(0);
-            value
-        },
-    )])
+    BTreeMap::from([(STREAM_DESC_ADDR, {
+        let mut value = format!("EEVideo {}", config.stream_name).into_bytes();
+        value.push(0);
+        value
+    })])
 }
 
 fn build_registers(config: &DeviceRuntimeConfig) -> BTreeMap<u32, u32> {
@@ -381,7 +397,10 @@ fn build_registers(config: &DeviceRuntimeConfig) -> BTreeMap<u32, u32> {
     registers.insert(STREAM_SOURCE_PORT_ADDR, 0);
     registers.insert(STREAM_WIDTH_ADDR, config.width);
     registers.insert(STREAM_HEIGHT_ADDR, config.height);
-    registers.insert(STREAM_PIXEL_FORMAT_ADDR, config.pixel_format.pfnc() & 0xffff);
+    registers.insert(
+        STREAM_PIXEL_FORMAT_ADDR,
+        config.pixel_format.pfnc() & 0xffff,
+    );
     registers.insert(STREAM_ACQ_ADDR, 0);
     registers.insert(STREAM_X_OFFSET_ADDR, 0);
     registers.insert(STREAM_Y_OFFSET_ADDR, 0);
@@ -621,7 +640,8 @@ fn is_discovery_request(request: &CoapMessage) -> bool {
         .filter_map(|option| std::str::from_utf8(&option.value).ok())
         .collect::<Vec<_>>();
     let query_matches = request.options.iter().any(|option| {
-        option.number == 15 && option.value.as_slice() == format!("rt={DISCOVERY_RESOURCE_TYPE}").as_bytes()
+        option.number == 15
+            && option.value.as_slice() == format!("rt={DISCOVERY_RESOURCE_TYPE}").as_bytes()
     });
 
     path == [".well-known", "core"] && query_matches
@@ -669,7 +689,8 @@ fn handle_register_request(
     let mut state = lock.lock().ok()?;
 
     if request.code == CODE_GET {
-        let payload = if reg_access.map(|value| value >> 5) == Some(RegisterReadKind::String as u8) {
+        let payload = if reg_access.map(|value| value >> 5) == Some(RegisterReadKind::String as u8)
+        {
             state.strings.get(&address).cloned().unwrap_or_default()
         } else {
             state
@@ -744,7 +765,9 @@ fn normalize_write_value(
     match address {
         STREAM_WIDTH_ADDR if requested_value != config.width => old_value,
         STREAM_HEIGHT_ADDR if requested_value != config.height => old_value,
-        STREAM_PIXEL_FORMAT_ADDR if requested_value != (config.pixel_format.pfnc() & 0xffff) => old_value,
+        STREAM_PIXEL_FORMAT_ADDR if requested_value != (config.pixel_format.pfnc() & 0xffff) => {
+            old_value
+        }
         _ => requested_value,
     }
 }
@@ -758,11 +781,19 @@ fn wait_for_stream_settings(
     let mut guard = lock.lock().ok()?;
     while !stop.load(Ordering::Relaxed) {
         if stream_enabled(&guard.registers) {
-            let destination_port =
-                (guard.registers.get(&STREAM_DEST_PORT_ADDR).copied().unwrap_or_default() & 0xffff)
-                    as u16;
-            let destination_ip =
-                Ipv4Addr::from(guard.registers.get(&STREAM_DEST_IP_ADDR).copied().unwrap_or_default());
+            let destination_port = (guard
+                .registers
+                .get(&STREAM_DEST_PORT_ADDR)
+                .copied()
+                .unwrap_or_default()
+                & 0xffff) as u16;
+            let destination_ip = Ipv4Addr::from(
+                guard
+                    .registers
+                    .get(&STREAM_DEST_IP_ADDR)
+                    .copied()
+                    .unwrap_or_default(),
+            );
             let mtu = guard
                 .registers
                 .get(&STREAM_MAX_PACKET_ADDR)
@@ -783,7 +814,8 @@ fn wait_for_stream_settings(
                 .get(&STREAM_PIXEL_FORMAT_ADDR)
                 .copied()
                 .unwrap_or(config.pixel_format.pfnc() & 0xffff);
-            let pixel_format = pixel_format_from_device_bits(advertised_bits).unwrap_or(config.pixel_format);
+            let pixel_format =
+                pixel_format_from_device_bits(advertised_bits).unwrap_or(config.pixel_format);
 
             return Some(SenderSettings {
                 destination_ip,
@@ -818,7 +850,11 @@ fn stream_enabled(registers: &BTreeMap<u32, u32>) -> bool {
 
 fn register_or_default(registers: &BTreeMap<u32, u32>, address: u32, default: u32) -> u32 {
     let value = registers.get(&address).copied().unwrap_or(default);
-    if value == 0 { default } else { value }
+    if value == 0 {
+        default
+    } else {
+        value
+    }
 }
 
 fn pixel_format_from_device_bits(value: u32) -> Option<PixelFormat> {
@@ -902,8 +938,8 @@ mod tests {
     use super::{
         build_discovery_response, build_registers, CaptureBackend, CaptureConfiguration,
         DeviceRuntime, DeviceRuntimeConfig, SelectedInterface, SyntheticCaptureBackend,
-        SyntheticCaptureConfig, STREAM_HEIGHT_ADDR, STREAM_MAX_PACKET_ADDR, STREAM_PIXEL_FORMAT_ADDR,
-        STREAM_WIDTH_ADDR,
+        SyntheticCaptureConfig, STREAM_HEIGHT_ADDR, STREAM_MAX_PACKET_ADDR,
+        STREAM_PIXEL_FORMAT_ADDR, STREAM_WIDTH_ADDR,
     };
     use eevideo_control::discovery::parse_discovery_advertisement;
     use eevideo_control::register::RegisterClient;

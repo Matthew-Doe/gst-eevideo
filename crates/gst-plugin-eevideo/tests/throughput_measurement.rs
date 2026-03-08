@@ -71,7 +71,11 @@ fn measure_uyvy_720p_profiles() {
             elapsed.as_secs_f64()
         );
 
-        assert!(sent > 0, "expected sender to transmit frames at {} fps", fps);
+        assert!(
+            sent > 0,
+            "expected sender to transmit frames at {} fps",
+            fps
+        );
         assert!(
             frames_received + frames_dropped > 0,
             "expected receiver activity at {} fps",
@@ -109,9 +113,12 @@ fn build_sender_pipeline(port: u32, fps: i32) -> gst::Pipeline {
     let capsfilter = gst::ElementFactory::make("capsfilter")
         .property(
             "caps",
-            format!("video/x-raw,format=UYVY,width=1280,height=720,framerate={}/1", fps)
-                .parse::<gst::Caps>()
-                .unwrap(),
+            format!(
+                "video/x-raw,format=UYVY,width=1280,height=720,framerate={}/1",
+                fps
+            )
+            .parse::<gst::Caps>()
+            .unwrap(),
         )
         .build()
         .unwrap();

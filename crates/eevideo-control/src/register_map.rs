@@ -79,7 +79,10 @@ pub fn resolve_stream_prefix(
         ));
     }
 
-    if prefixes.iter().any(|prefix| prefix == requested_stream_name) {
+    if prefixes
+        .iter()
+        .any(|prefix| prefix == requested_stream_name)
+    {
         return Ok(requested_stream_name.to_string());
     }
 
@@ -125,8 +128,8 @@ pub fn read_register_field(
     selector: &RegisterSelector,
     field_name: &str,
 ) -> Result<u32, ControlError> {
-    let (register_name, register) = resolve_register(device, selector)?
-        .ok_or_else(|| match selector {
+    let (register_name, register) =
+        resolve_register(device, selector)?.ok_or_else(|| match selector {
             RegisterSelector::Name(name) => unknown_register(name),
             RegisterSelector::Address(address) => ControlError::new(
                 ControlErrorKind::InvalidConfiguration,
@@ -178,8 +181,8 @@ pub fn write_register_fields(
     selector: &RegisterSelector,
     fields: &[FieldUpdate],
 ) -> Result<(), ControlError> {
-    let (register_name, register) = resolve_register(device, selector)?
-        .ok_or_else(|| match selector {
+    let (register_name, register) =
+        resolve_register(device, selector)?.ok_or_else(|| match selector {
             RegisterSelector::Name(name) => unknown_register(name),
             RegisterSelector::Address(address) => ControlError::new(
                 ControlErrorKind::InvalidConfiguration,
@@ -199,7 +202,10 @@ pub fn write_register_fields(
         let definition = register.fields.get(&field.name).ok_or_else(|| {
             ControlError::new(
                 ControlErrorKind::InvalidConfiguration,
-                format!("register {register_name} does not define field {}", field.name),
+                format!(
+                    "register {register_name} does not define field {}",
+                    field.name
+                ),
             )
         })?;
         let (shift, field_mask) = field_mask(definition)?;
@@ -245,17 +251,12 @@ pub fn write_register_fields(
     Ok(())
 }
 
-pub fn extract_field(
-    value: u32,
-    definition: &FeatureFieldDefinition,
-) -> Result<u32, ControlError> {
+pub fn extract_field(value: u32, definition: &FeatureFieldDefinition) -> Result<u32, ControlError> {
     let (shift, mask) = field_mask(definition)?;
     Ok((value >> shift) & mask)
 }
 
-pub fn field_mask(
-    definition: &FeatureFieldDefinition,
-) -> Result<(u32, u32), ControlError> {
+pub fn field_mask(definition: &FeatureFieldDefinition) -> Result<(u32, u32), ControlError> {
     if definition.len == 0 || definition.len > 32 || definition.msb + 1 < definition.len {
         return Err(ControlError::new(
             ControlErrorKind::InvalidConfiguration,
@@ -334,7 +335,9 @@ mod tests {
         DeviceCapabilities, DeviceConfig, DeviceLocation, DeviceMemoryMap, DeviceRegisterValue,
     };
 
-    use super::{extract_field, field_mask, resolve_stream_prefix, stream_prefixes, RegisterSelector};
+    use super::{
+        extract_field, field_mask, resolve_stream_prefix, stream_prefixes, RegisterSelector,
+    };
 
     fn device() -> DeviceConfig {
         DeviceConfig {
@@ -373,7 +376,10 @@ mod tests {
 
     #[test]
     fn resolve_stream_prefix_accepts_single_stream_devices() {
-        assert_eq!(resolve_stream_prefix(&device(), "other").unwrap(), "stream0");
+        assert_eq!(
+            resolve_stream_prefix(&device(), "other").unwrap(),
+            "stream0"
+        );
     }
 
     #[test]
@@ -394,6 +400,9 @@ mod tests {
 
     #[test]
     fn selector_address_helper_is_stable() {
-        assert_eq!(RegisterSelector::address(0x10), RegisterSelector::Address(0x10));
+        assert_eq!(
+            RegisterSelector::address(0x10),
+            RegisterSelector::Address(0x10)
+        );
     }
 }

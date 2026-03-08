@@ -48,7 +48,10 @@ pub fn parse_caps(caps: &gst::CapsRef) -> Result<FrameFormat, String> {
         .map_err(|_| "caps missing integer height field".to_string())?;
 
     if width <= 0 || height <= 0 {
-        return Err(format!("invalid negotiated dimensions {}x{}", width, height));
+        return Err(format!(
+            "invalid negotiated dimensions {}x{}",
+            width, height
+        ));
     }
 
     let pixel_format =

@@ -149,7 +149,9 @@ impl CoapMessage {
                 return Err(CoapError::Truncated("option value"));
             }
 
-            previous = previous.checked_add(delta).ok_or(CoapError::OptionNumberOverflow)?;
+            previous = previous
+                .checked_add(delta)
+                .ok_or(CoapError::OptionNumberOverflow)?;
             options.push(CoapOption {
                 number: previous,
                 value: data[position..end].to_vec(),
@@ -240,7 +242,10 @@ impl fmt::Display for CoapError {
         match self {
             Self::TokenTooLong(len) => write!(f, "token length must not exceed 8 bytes, got {len}"),
             Self::OptionsOutOfOrder { previous, current } => {
-                write!(f, "options must be in ascending order: {current} after {previous}")
+                write!(
+                    f,
+                    "options must be in ascending order: {current} after {previous}"
+                )
             }
             Self::MessageTooShort(len) => write!(f, "message too short: {len} bytes"),
             Self::InvalidVersion(version) => write!(f, "invalid CoAP version {version}"),

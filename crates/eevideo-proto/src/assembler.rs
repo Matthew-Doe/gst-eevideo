@@ -22,7 +22,10 @@ pub enum FrameDropReason {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FrameEvent {
     Complete(VideoFrame),
-    Dropped { frame_id: u32, reason: FrameDropReason },
+    Dropped {
+        frame_id: u32,
+        reason: FrameDropReason,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

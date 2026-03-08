@@ -330,8 +330,11 @@ impl BaseSinkImpl for EeVideoSink {
 
         let control_template = build_stream_configuration(&settings, None);
         let control_target = default_control_target(&control_template.stream_name);
-        let mut control_session =
-            ControlSession::new(Arc::clone(&self.control), control_target, control_template.clone());
+        let mut control_session = ControlSession::new(
+            Arc::clone(&self.control),
+            control_target,
+            control_template.clone(),
+        );
         control_session
             .configure(control_template.clone())
             .map_err(|err| {
@@ -413,7 +416,9 @@ impl BaseSinkImpl for EeVideoSink {
 
         let mut state_guard = self.state.lock().expect("state lock poisoned");
         let state = state_guard.as_mut().ok_or(gst::FlowError::Error)?;
-        let current_format = state.negotiated_format.ok_or(gst::FlowError::NotNegotiated)?;
+        let current_format = state
+            .negotiated_format
+            .ok_or(gst::FlowError::NotNegotiated)?;
         let expected_len = current_format.payload_len().map_err(|_| {
             self.stats.record_drop();
             self.stats.record_packet_anomaly();
@@ -499,7 +504,8 @@ fn build_stream_configuration(
         port: u16::try_from(settings.port).expect("port is validated by the property range"),
         bind_address: settings.bind_address.clone(),
         packet_delay_ns: settings.packet_delay_ns,
-        max_packet_size: u16::try_from(settings.mtu).expect("mtu is validated by the property range"),
+        max_packet_size: u16::try_from(settings.mtu)
+            .expect("mtu is validated by the property range"),
         format,
     }
 }

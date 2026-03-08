@@ -41,4 +41,3 @@ impl StreamStats {
         self.packet_anomalies.fetch_add(1, Ordering::Relaxed);
     }
 }
-

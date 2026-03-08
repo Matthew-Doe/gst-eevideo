@@ -146,8 +146,16 @@ pub fn run(cli: Cli) -> Result<String> {
             let target = resolve_target(&controller, cli.device_uri.as_deref())?;
             let description = controller.describe(&target)?;
             let mut output = String::new();
-            writeln!(output, "device-uri: {}", description.summary.target.device_uri)?;
-            writeln!(output, "device-address: {}", description.summary.device_address)?;
+            writeln!(
+                output,
+                "device-uri: {}",
+                description.summary.target.device_uri
+            )?;
+            writeln!(
+                output,
+                "device-address: {}",
+                description.summary.device_address
+            )?;
             writeln!(output, "interface: {}", description.summary.interface_name)?;
             writeln!(
                 output,
@@ -242,7 +250,10 @@ fn controller(cli: &Cli) -> DeviceController {
     })
 }
 
-fn resolve_target(controller: &DeviceController, device_uri: Option<&str>) -> Result<ControlTarget> {
+fn resolve_target(
+    controller: &DeviceController,
+    device_uri: Option<&str>,
+) -> Result<ControlTarget> {
     if let Some(device_uri) = device_uri {
         return Ok(ControlTarget {
             device_uri: device_uri.to_string(),
@@ -335,7 +346,10 @@ fn pixel_format_name(pixel_format: &PixelFormat) -> &'static str {
 }
 
 fn parse_u32_arg(value: &str) -> Result<u32, String> {
-    if let Some(value) = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")) {
+    if let Some(value) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
         u32::from_str_radix(value, 16).map_err(|err| err.to_string())
     } else {
         value.parse::<u32>().map_err(|err| err.to_string())

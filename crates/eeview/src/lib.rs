@@ -217,7 +217,10 @@ fn build_pipeline(
     Ok(pipeline)
 }
 
-fn resolve_target(controller: &DeviceController, device_uri: Option<&str>) -> Result<ControlTarget> {
+fn resolve_target(
+    controller: &DeviceController,
+    device_uri: Option<&str>,
+) -> Result<ControlTarget> {
     if let Some(device_uri) = device_uri {
         return Ok(ControlTarget {
             device_uri: device_uri.to_string(),
@@ -300,11 +303,7 @@ fn link_tee_branch(tee: &gst::Element, branch_sink: &gst::Element) -> Result<()>
     Ok(())
 }
 
-fn link_into_mux(
-    upstream: &gst::Element,
-    mux: &gst::Element,
-    pad_template: &str,
-) -> Result<()> {
+fn link_into_mux(upstream: &gst::Element, mux: &gst::Element, pad_template: &str) -> Result<()> {
     let src_pad = upstream
         .static_pad("src")
         .ok_or_else(|| anyhow!("upstream encoder does not expose a src pad"))?;
@@ -328,7 +327,10 @@ fn wait_for_terminal_bus_message(bus: &gst::Bus, timeout: Duration) -> Result<()
                         .src()
                         .map(|src| src.path_string().to_string())
                         .unwrap_or_else(|| "unknown".to_string());
-                    bail!("pipeline error while finalizing from {src}: {}", err.error());
+                    bail!(
+                        "pipeline error while finalizing from {src}: {}",
+                        err.error()
+                    );
                 }
                 _ => {}
             }
@@ -361,5 +363,4 @@ mod tests {
             Some(std::ffi::OsStr::new("webm"))
         );
     }
-
 }

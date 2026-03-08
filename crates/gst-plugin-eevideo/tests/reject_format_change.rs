@@ -63,10 +63,7 @@ fn source_rejects_mid_stream_format_change() {
     });
 
     let bus = pipeline.bus().unwrap();
-    let msg = bus.timed_pop_filtered(
-        gst::ClockTime::from_seconds(2),
-        &[gst::MessageType::Error],
-    );
+    let msg = bus.timed_pop_filtered(gst::ClockTime::from_seconds(2), &[gst::MessageType::Error]);
 
     pipeline.set_state(gst::State::Null).unwrap();
     assert!(msg.is_some(), "expected format-change error on the bus");

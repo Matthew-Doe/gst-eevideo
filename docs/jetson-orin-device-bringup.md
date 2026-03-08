@@ -1,7 +1,12 @@
 # Jetson Orin Device Bring-Up
 
-This runbook covers the first managed-device workflow for `eedeviced` on a
-Jetson Orin target.
+This runbook covers the `argus` provider workflow for `eedeviced` on a Jetson
+Orin target.
+
+If you need the full first-time setup path from a fresh board, start with
+[jetson-orin-first-time-setup.md](jetson-orin-first-time-setup.md).
+If you need the provider matrix for non-Jetson sources, use
+[eedeviced-provider-guide.md](eedeviced-provider-guide.md).
 
 ## Goal
 
@@ -54,6 +59,7 @@ Example Jetson command:
   --iface eth0 \
   --input argus \
   --sensor-id 0 \
+  --pixel-format uyvy \
   --width 1280 \
   --height 720 \
   --fps 30 \

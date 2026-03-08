@@ -53,7 +53,9 @@ pub fn build_discovery_request(token: &[u8], message_id: u16) -> Result<Vec<u8>,
     .encode()
 }
 
-pub fn parse_discovery_advertisement(payload: &[u8]) -> Result<DiscoveryAdvertisement, DiscoveryError> {
+pub fn parse_discovery_advertisement(
+    payload: &[u8],
+) -> Result<DiscoveryAdvertisement, DiscoveryError> {
     let payload = std::str::from_utf8(payload).map_err(DiscoveryError::InvalidUtf8)?;
     let mut links = Vec::new();
 
@@ -159,7 +161,9 @@ pub fn discover_devices(
     Ok(responses)
 }
 
-fn list_interfaces(interface_filter: Option<&str>) -> Result<Vec<DiscoveryInterface>, DiscoveryError> {
+fn list_interfaces(
+    interface_filter: Option<&str>,
+) -> Result<Vec<DiscoveryInterface>, DiscoveryError> {
     let mut interfaces = Vec::new();
     for interface in get_if_addrs().map_err(DiscoveryError::Io)? {
         if let Some(filter) = interface_filter {

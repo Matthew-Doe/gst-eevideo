@@ -124,7 +124,10 @@ impl<'a> CompatPacketView<'a> {
                 packet_id,
                 data: &buf[COMPAT_HEADER_SIZE..],
             }),
-            x if x == PacketType::Trailer as u8 => Ok(Self::Trailer { frame_id, packet_id }),
+            x if x == PacketType::Trailer as u8 => Ok(Self::Trailer {
+                frame_id,
+                packet_id,
+            }),
             x => Err(CompatPacketError::UnknownPacketType(x)),
         }
     }
@@ -203,15 +206,23 @@ impl fmt::Display for CompatPacketError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::PacketTooSmall { len, expected } => {
-                write!(f, "packet too small: got {len} bytes, expected at least {expected}")
+                write!(
+                    f,
+                    "packet too small: got {len} bytes, expected at least {expected}"
+                )
             }
-            Self::UnknownPacketType(value) => write!(f, "unknown compatibility packet type {value}"),
+            Self::UnknownPacketType(value) => {
+                write!(f, "unknown compatibility packet type {value}")
+            }
             Self::UnsupportedPayloadType(value) => {
                 write!(f, "unsupported compatibility payload type {value}")
             }
             Self::UnsupportedPixelFormat(err) => err.fmt(f),
             Self::InvalidMtu(value) => {
-                write!(f, "invalid MTU {value}, needs to be >= {COMPAT_LEADER_SIZE}")
+                write!(
+                    f,
+                    "invalid MTU {value}, needs to be >= {COMPAT_LEADER_SIZE}"
+                )
             }
         }
     }
@@ -520,9 +531,18 @@ mod tests {
             data: vec![1; 48],
         };
 
-        let packets = CompatPacketizer::new(44).unwrap().packetize(&frame).unwrap();
+        let packets = CompatPacketizer::new(44)
+            .unwrap()
+            .packetize(&frame)
+            .unwrap();
         assert_eq!(packets.len(), 4);
-        assert!(matches!(CompatPacket::parse(&packets[0]).unwrap(), CompatPacket::Leader { .. }));
-        assert!(matches!(CompatPacket::parse(&packets[3]).unwrap(), CompatPacket::Trailer { .. }));
+        assert!(matches!(
+            CompatPacket::parse(&packets[0]).unwrap(),
+            CompatPacket::Leader { .. }
+        ));
+        assert!(matches!(
+            CompatPacket::parse(&packets[3]).unwrap(),
+            CompatPacket::Trailer { .. }
+        ));
     }
 }

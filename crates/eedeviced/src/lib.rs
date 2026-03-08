@@ -1,23 +1,50 @@
 use std::ffi::OsString;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::OnceLock;
-use std::time::Instant;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Result};
 use clap::{Parser, ValueEnum};
-use eevideo_device::{
-    CaptureBackend, CaptureConfiguration, DeviceRuntime, DeviceRuntimeConfig,
-    SyntheticCaptureBackend, SyntheticCaptureConfig,
-};
-use eevideo_proto::{PixelFormat, VideoFrame};
-use gst::prelude::*;
-use gstreamer as gst;
-use gstreamer_app as gst_app;
+use eevideo_device::{DeviceRuntime, DeviceRuntimeConfig};
+use eevideo_proto::PixelFormat;
+
+mod providers;
+
+pub use providers::ProviderConfig;
+use providers::{build_capture_backend, validate_provider_config};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum InputKind {
     Synthetic,
     Argus,
+    V4l2,
+    Pipeline,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+enum CliPixelFormat {
+    #[value(alias = "gray8", alias = "mono")]
+    Mono8,
+    #[value(alias = "gray16le")]
+    Mono16,
+    BayerGr8,
+    BayerRg8,
+    BayerGb8,
+    BayerBg8,
+    Uyvy,
+}
+
+impl From<CliPixelFormat> for PixelFormat {
+    fn from(value: CliPixelFormat) -> Self {
+        match value {
+            CliPixelFormat::Mono8 => PixelFormat::Mono8,
+            CliPixelFormat::Mono16 => PixelFormat::Mono16,
+            CliPixelFormat::BayerGr8 => PixelFormat::BayerGr8,
+            CliPixelFormat::BayerRg8 => PixelFormat::BayerRg8,
+            CliPixelFormat::BayerGb8 => PixelFormat::BayerGb8,
+            CliPixelFormat::BayerBg8 => PixelFormat::BayerBg8,
+            CliPixelFormat::Uyvy => PixelFormat::Uyvy,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,10 +55,10 @@ pub struct DeviceDaemonConfig {
     pub stream_name: String,
     pub width: u32,
     pub height: u32,
+    pub pixel_format: PixelFormat,
     pub fps: u32,
     pub mtu: u16,
-    pub input: InputKind,
-    pub sensor_id: u32,
+    pub provider: ProviderConfig,
 }
 
 impl Default for DeviceDaemonConfig {
@@ -43,10 +70,10 @@ impl Default for DeviceDaemonConfig {
             stream_name: "stream0".to_string(),
             width: 1280,
             height: 720,
+            pixel_format: PixelFormat::Uyvy,
             fps: 30,
             mtu: 1200,
-            input: InputKind::Synthetic,
-            sensor_id: 0,
+            provider: ProviderConfig::Synthetic,
         }
     }
 }
@@ -60,10 +87,20 @@ impl DeviceDaemonConfig {
             stream_name: self.stream_name.clone(),
             width: self.width,
             height: self.height,
-            pixel_format: PixelFormat::Uyvy,
+            pixel_format: self.pixel_format,
             fps: self.fps,
             mtu: self.mtu,
             enforce_fixed_format: true,
+        }
+    }
+
+    #[cfg(test)]
+    fn capture_configuration(&self) -> eevideo_device::CaptureConfiguration {
+        eevideo_device::CaptureConfiguration {
+            width: self.width,
+            height: self.height,
+            pixel_format: self.pixel_format,
+            fps: self.fps,
         }
     }
 }
@@ -83,30 +120,76 @@ struct Cli {
     width: u32,
     #[arg(long, default_value_t = 720)]
     height: u32,
+    #[arg(long, default_value = "uyvy")]
+    pixel_format: CliPixelFormat,
     #[arg(long, default_value_t = 30)]
     fps: u32,
     #[arg(long, default_value_t = 1200)]
     mtu: u16,
     #[arg(long, default_value = "synthetic")]
     input: InputKind,
-    #[arg(long, default_value_t = 0)]
-    sensor_id: u32,
+    #[arg(long)]
+    sensor_id: Option<u32>,
+    #[arg(long)]
+    device: Option<String>,
+    #[arg(long)]
+    pipeline: Option<String>,
 }
 
-impl From<Cli> for DeviceDaemonConfig {
-    fn from(value: Cli) -> Self {
-        Self {
+impl TryFrom<Cli> for DeviceDaemonConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Cli) -> Result<Self, Self::Error> {
+        let provider = match value.input {
+            InputKind::Synthetic => {
+                reject_unused_cli_options(
+                    value.sensor_id,
+                    value.device.as_deref(),
+                    value.pipeline.as_deref(),
+                )?;
+                ProviderConfig::Synthetic
+            }
+            InputKind::Argus => {
+                reject_unexpected_option("device", value.device.as_deref())?;
+                reject_unexpected_option("pipeline", value.pipeline.as_deref())?;
+                ProviderConfig::Argus {
+                    sensor_id: value.sensor_id.unwrap_or(0),
+                }
+            }
+            InputKind::V4l2 => {
+                reject_unexpected_option(
+                    "sensor-id",
+                    value.sensor_id.map(|id| id.to_string()).as_deref(),
+                )?;
+                reject_unexpected_option("pipeline", value.pipeline.as_deref())?;
+                ProviderConfig::V4l2 {
+                    device: require_cli_option("device", value.device)?,
+                }
+            }
+            InputKind::Pipeline => {
+                reject_unexpected_option(
+                    "sensor-id",
+                    value.sensor_id.map(|id| id.to_string()).as_deref(),
+                )?;
+                reject_unexpected_option("device", value.device.as_deref())?;
+                ProviderConfig::Pipeline {
+                    description: require_cli_option("pipeline", value.pipeline)?,
+                }
+            }
+        };
+
+        Ok(Self {
             bind: value.bind,
             interface_name: value.iface,
             advertise_address: value.advertise_address,
             stream_name: value.stream_name,
             width: value.width,
             height: value.height,
+            pixel_format: value.pixel_format.into(),
             fps: value.fps,
             mtu: value.mtu,
-            input: value.input,
-            sensor_id: value.sensor_id,
-        }
+            provider,
+        })
     }
 }
 
@@ -114,18 +197,20 @@ pub struct DeviceDaemon {
     runtime: DeviceRuntime,
 }
 
+impl std::fmt::Debug for DeviceDaemon {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceDaemon")
+            .field("local_addr", &self.local_addr())
+            .field("uri", &self.uri())
+            .finish()
+    }
+}
+
 impl DeviceDaemon {
     pub fn spawn(config: DeviceDaemonConfig) -> Result<Self> {
         validate_config(&config)?;
-        let runtime = match config.input {
-            InputKind::Synthetic => DeviceRuntime::spawn(
-                config.runtime_config(),
-                SyntheticCaptureBackend::new(SyntheticCaptureConfig::default()),
-            )?,
-            InputKind::Argus => {
-                DeviceRuntime::spawn(config.runtime_config(), ArgusCaptureBackend::new(config.sensor_id))?
-            }
-        };
+        let runtime =
+            DeviceRuntime::spawn(config.runtime_config(), build_capture_backend(&config))?;
         Ok(Self { runtime })
     }
 
@@ -148,7 +233,7 @@ where
     T: Into<OsString> + Clone,
 {
     let cli = Cli::parse_from(args);
-    run(cli.into())
+    run(DeviceDaemonConfig::try_from(cli)?)
 }
 
 pub fn run(config: DeviceDaemonConfig) -> Result<()> {
@@ -177,257 +262,391 @@ fn validate_config(config: &DeviceDaemonConfig) -> Result<()> {
     if config.fps == 0 {
         bail!("fps must be greater than zero");
     }
-    if config.width % 2 != 0 {
+    config
+        .pixel_format
+        .payload_len(config.width, config.height)
+        .map_err(anyhow::Error::from)?;
+    if config.pixel_format == PixelFormat::Uyvy && config.width % 2 != 0 {
         bail!("UYVY device width must be even");
     }
+    validate_provider_config(config)
+}
+
+fn reject_unused_cli_options(
+    sensor_id: Option<u32>,
+    device: Option<&str>,
+    pipeline: Option<&str>,
+) -> Result<()> {
+    reject_unexpected_option("sensor-id", sensor_id.map(|id| id.to_string()).as_deref())?;
+    reject_unexpected_option("device", device)?;
+    reject_unexpected_option("pipeline", pipeline)?;
     Ok(())
 }
 
-static GST_INIT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
-
-#[derive(Debug)]
-struct ArgusCaptureState {
-    pipeline: gst::Pipeline,
-    sink: gst_app::AppSink,
-    started_at: Instant,
-    next_frame_id: u32,
-    current_format: CaptureConfiguration,
-}
-
-#[derive(Debug)]
-struct ArgusCaptureBackend {
-    sensor_id: u32,
-    state: Option<ArgusCaptureState>,
-}
-
-impl ArgusCaptureBackend {
-    fn new(sensor_id: u32) -> Self {
-        Self {
-            sensor_id,
-            state: None,
+fn reject_unexpected_option(name: &str, value: Option<&str>) -> Result<()> {
+    if let Some(value) = value {
+        if !value.trim().is_empty() {
+            bail!("--{name} is only valid for its matching provider");
         }
-    }
-}
-
-impl CaptureBackend for ArgusCaptureBackend {
-    fn start_capture(&mut self, config: CaptureConfiguration) -> Result<()> {
-        ensure_gstreamer_init()?;
-        validate_argus_capture_config(&config)?;
-        if self.state.is_some() {
-            self.stop_capture()?;
-        }
-
-        let description = build_argus_pipeline_description(self.sensor_id, &config);
-        let element = gst::parse::launch(&description)
-            .with_context(|| format!("failed to build Argus pipeline: {description}"))?;
-        let pipeline = element
-            .downcast::<gst::Pipeline>()
-            .map_err(|_| anyhow!("Argus pipeline description did not produce a gst::Pipeline"))?;
-        let sink = pipeline
-            .by_name("framesink")
-            .ok_or_else(|| anyhow!("Argus pipeline does not expose framesink appsink"))?
-            .downcast::<gst_app::AppSink>()
-            .map_err(|_| anyhow!("Argus framesink element is not an appsink"))?;
-
-        pipeline
-            .set_state(gst::State::Playing)
-            .context("failed to start Argus pipeline")?;
-        self.state = Some(ArgusCaptureState {
-            pipeline,
-            sink,
-            started_at: Instant::now(),
-            next_frame_id: 1,
-            current_format: config,
-        });
-        Ok(())
-    }
-
-    fn stop_capture(&mut self) -> Result<()> {
-        if let Some(state) = self.state.take() {
-            state
-                .pipeline
-                .set_state(gst::State::Null)
-                .context("failed to stop Argus pipeline")?;
-        }
-        Ok(())
-    }
-
-    fn next_frame(&mut self) -> Result<VideoFrame> {
-        let state = self
-            .state
-            .as_mut()
-            .ok_or_else(|| anyhow!("Argus capture is not running"))?;
-        let sample = state
-            .sink
-            .try_pull_sample(gst::ClockTime::from_mseconds(200))
-            .ok_or_else(|| anyhow!("timed out waiting for an Argus frame"))?;
-        let buffer = sample
-            .buffer_owned()
-            .ok_or_else(|| anyhow!("Argus sample did not include a buffer"))?;
-        let map = buffer
-            .map_readable()
-            .map_err(|_| anyhow!("failed to map Argus sample buffer"))?;
-        let expected_len = state
-            .current_format
-            .pixel_format
-            .payload_len(state.current_format.width, state.current_format.height)
-            .context("invalid Argus capture format")?;
-        if map.as_slice().len() != expected_len {
-            bail!(
-                "Argus frame payload length mismatch: expected {expected_len}, got {}",
-                map.as_slice().len()
-            );
-        }
-
-        let frame_id = state.next_frame_id;
-        state.next_frame_id = state.next_frame_id.wrapping_add(1).max(1);
-        let timestamp = buffer
-            .pts()
-            .map(|pts| pts.nseconds())
-            .unwrap_or_else(|| {
-                state
-                    .started_at
-                    .elapsed()
-                    .as_nanos()
-                    .min(u128::from(u64::MAX)) as u64
-            });
-
-        Ok(VideoFrame {
-            frame_id,
-            timestamp,
-            width: state.current_format.width,
-            height: state.current_format.height,
-            pixel_format: state.current_format.pixel_format,
-            payload_type: eevideo_proto::PayloadType::Image,
-            data: map.as_slice().to_vec(),
-        })
-    }
-
-    fn current_format(&self) -> Option<CaptureConfiguration> {
-        self.state.as_ref().map(|state| state.current_format.clone())
-    }
-}
-
-fn ensure_gstreamer_init() -> Result<()> {
-    GST_INIT
-        .get_or_init(|| gst::init().map_err(|err| err.to_string()))
-        .clone()
-        .map_err(anyhow::Error::msg)
-}
-
-fn validate_argus_capture_config(config: &CaptureConfiguration) -> Result<()> {
-    if config.pixel_format != PixelFormat::Uyvy {
-        bail!("Argus capture backend only supports UYVY output");
-    }
-    if config.width % 2 != 0 {
-        bail!("Argus UYVY output width must be even");
     }
     Ok(())
 }
 
-fn build_argus_pipeline_description(sensor_id: u32, config: &CaptureConfiguration) -> String {
-    format!(
-        concat!(
-            "nvarguscamerasrc sensor-id={sensor_id} ! ",
-            "video/x-raw(memory:NVMM),width={width},height={height},framerate={fps}/1 ! ",
-            "nvvidconv ! ",
-            "video/x-raw,format=UYVY,width={width},height={height} ! ",
-            "appsink name=framesink sync=false max-buffers=1 drop=true"
-        ),
-        sensor_id = sensor_id,
-        width = config.width,
-        height = config.height,
-        fps = config.fps,
-    )
+fn require_cli_option(name: &str, value: Option<String>) -> Result<String> {
+    let Some(value) = value else {
+        bail!("--{name} is required for the selected provider");
+    };
+    if value.trim().is_empty() {
+        bail!("--{name} must not be empty");
+    }
+    Ok(value)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_argus_pipeline_description, CaptureConfiguration, DeviceDaemon, DeviceDaemonConfig,
-        InputKind,
-    };
+    use std::net::UdpSocket;
+    use std::time::{Duration, Instant};
+
+    use clap::Parser;
     use eevideo_control::backend::{CoapRegisterBackend, CoapRegisterBackendConfig};
-    use eevideo_control::{ControlBackend, ControlTarget, ControlTransportKind, RequestedStreamConfiguration};
-    use eevideo_proto::{PayloadType, PixelFormat, StreamProfileId};
-    use std::time::Duration;
+    use eevideo_control::{
+        ControlBackend, ControlTarget, ControlTransportKind, RequestedStreamConfiguration,
+        StreamFormatDescriptor,
+    };
+    use eevideo_proto::{
+        CompatPacket, FrameAssembler, FrameEvent, PayloadType, PixelFormat, StreamProfileId,
+        StreamStats,
+    };
+
+    use eevideo_device::CaptureConfiguration;
+
+    use super::{providers, Cli, DeviceDaemon, DeviceDaemonConfig, ProviderConfig};
+
+    #[test]
+    fn parses_pixel_format_aliases() {
+        let cli = Cli::try_parse_from(["eedeviced", "--pixel-format", "gray8"]).unwrap();
+        let config = DeviceDaemonConfig::try_from(cli).unwrap();
+        assert_eq!(config.pixel_format, PixelFormat::Mono8);
+
+        let cli = Cli::try_parse_from(["eedeviced", "--pixel-format", "mono"]).unwrap();
+        let config = DeviceDaemonConfig::try_from(cli).unwrap();
+        assert_eq!(config.pixel_format, PixelFormat::Mono8);
+
+        let cli = Cli::try_parse_from(["eedeviced", "--pixel-format", "gray16le"]).unwrap();
+        let config = DeviceDaemonConfig::try_from(cli).unwrap();
+        assert_eq!(config.pixel_format, PixelFormat::Mono16);
+    }
 
     #[test]
     fn argus_pipeline_description_uses_expected_elements() {
-        let description = build_argus_pipeline_description(
+        let description = providers::build_argus_pipeline_description(
             2,
-            &CaptureConfiguration {
+            &DeviceDaemonConfig {
                 width: 1280,
                 height: 720,
-                pixel_format: PixelFormat::Uyvy,
                 fps: 30,
-            },
+                pixel_format: PixelFormat::Uyvy,
+                provider: ProviderConfig::Argus { sensor_id: 2 },
+                ..DeviceDaemonConfig::default()
+            }
+            .capture_configuration(),
         );
 
         assert!(description.contains("nvarguscamerasrc sensor-id=2"));
-        assert!(description.contains("video/x-raw(memory:NVMM),width=1280,height=720,framerate=30/1"));
+        assert!(
+            description.contains("video/x-raw(memory:NVMM),width=1280,height=720,framerate=30/1")
+        );
         assert!(description.contains("nvvidconv"));
         assert!(description.contains("video/x-raw,format=UYVY,width=1280,height=720"));
         assert!(description.contains("appsink name=framesink"));
     }
 
     #[test]
-    fn synthetic_device_uses_fixed_uyvy_format() {
+    fn v4l2_pipeline_description_requests_configured_caps() {
+        let description = providers::build_v4l2_pipeline_description(
+            "/dev/video0",
+            &DeviceDaemonConfig {
+                width: 640,
+                height: 480,
+                fps: 60,
+                pixel_format: PixelFormat::Mono16,
+                provider: ProviderConfig::V4l2 {
+                    device: "/dev/video0".to_string(),
+                },
+                ..DeviceDaemonConfig::default()
+            }
+            .capture_configuration(),
+        );
+
+        assert!(description.contains("v4l2src device=/dev/video0"));
+        assert!(description
+            .contains("video/x-raw,format=GRAY16_LE,width=640,height=480,framerate=60/1"));
+        assert!(description.contains("appsink name=framesink"));
+    }
+
+    #[test]
+    fn supports_non_uyvy_odd_width_formats() {
         let device = DeviceDaemon::spawn(DeviceDaemonConfig {
             bind: "127.0.0.1:0".parse().unwrap(),
-            input: InputKind::Synthetic,
-            width: 640,
-            height: 480,
+            width: 31,
+            height: 16,
+            pixel_format: PixelFormat::Mono8,
+            provider: ProviderConfig::Synthetic,
             ..DeviceDaemonConfig::default()
         })
         .unwrap();
 
-        let backend = CoapRegisterBackend::new(CoapRegisterBackendConfig {
-            request_timeout: Duration::from_millis(250),
-            ..CoapRegisterBackendConfig::default()
-        });
-        let target = ControlTarget {
-            device_uri: device.uri(),
-            transport_kind: ControlTransportKind::CoapRegister,
-            auth_scope: None,
-        };
-        let mut connection = backend.connect(&target).unwrap();
-        let applied = connection
-            .configure(RequestedStreamConfiguration {
-                stream_name: "stream0".to_string(),
-                profile: StreamProfileId::CompatibilityV1,
-                destination_host: "127.0.0.1".to_string(),
-                port: 5000,
-                bind_address: "127.0.0.1".to_string(),
-                packet_delay_ns: 0,
-                max_packet_size: 1200,
-                format: Some(eevideo_control::StreamFormatDescriptor {
-                    payload_type: PayloadType::Image,
-                    pixel_format: PixelFormat::Uyvy,
-                    width: 640,
-                    height: 480,
-                }),
+        assert!(device.uri().starts_with("coap://127.0.0.1:"));
+    }
+
+    #[test]
+    fn rejects_uyvy_odd_width() {
+        let error = DeviceDaemon::spawn(DeviceDaemonConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+            width: 31,
+            height: 16,
+            pixel_format: PixelFormat::Uyvy,
+            provider: ProviderConfig::Synthetic,
+            ..DeviceDaemonConfig::default()
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("UYVY device width must be even"));
+    }
+
+    #[test]
+    fn argus_rejects_non_uyvy_formats() {
+        let error = DeviceDaemon::spawn(DeviceDaemonConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+            width: 32,
+            height: 16,
+            pixel_format: PixelFormat::Mono8,
+            provider: ProviderConfig::Argus { sensor_id: 0 },
+            ..DeviceDaemonConfig::default()
+        })
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("argus provider only supports UYVY output"));
+    }
+
+    #[test]
+    fn pipeline_provider_requires_framesink() {
+        let mut backend =
+            providers::GstreamerCaptureBackend::new(providers::GstreamerProviderConfig::Pipeline {
+                description: "videotestsrc num-buffers=1 ! fakesink".to_string(),
+            });
+        let error = providers::start_backend_for_test(
+            &mut backend,
+            CaptureConfiguration {
+                width: 32,
+                height: 16,
+                pixel_format: PixelFormat::Mono8,
+                fps: 30,
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("framesink"));
+    }
+
+    #[test]
+    fn caps_mapping_supports_requested_formats() {
+        providers::ensure_gstreamer_init_for_tests().unwrap();
+
+        let caps = gstreamer::Caps::builder("video/x-raw")
+            .field("format", "UYVY")
+            .field("width", 32i32)
+            .field("height", 16i32)
+            .build();
+        assert_eq!(
+            providers::capture_format_from_caps(caps.as_ref(), 30)
+                .unwrap()
+                .pixel_format,
+            PixelFormat::Uyvy
+        );
+
+        let caps = gstreamer::Caps::builder("video/x-raw")
+            .field("format", "GRAY8")
+            .field("width", 32i32)
+            .field("height", 16i32)
+            .build();
+        assert_eq!(
+            providers::capture_format_from_caps(caps.as_ref(), 30)
+                .unwrap()
+                .pixel_format,
+            PixelFormat::Mono8
+        );
+
+        let caps = gstreamer::Caps::builder("video/x-raw")
+            .field("format", "GRAY16_LE")
+            .field("width", 32i32)
+            .field("height", 16i32)
+            .build();
+        assert_eq!(
+            providers::capture_format_from_caps(caps.as_ref(), 30)
+                .unwrap()
+                .pixel_format,
+            PixelFormat::Mono16
+        );
+
+        let caps = gstreamer::Caps::builder("video/x-bayer")
+            .field("format", "bggr")
+            .field("width", 32i32)
+            .field("height", 16i32)
+            .build();
+        assert_eq!(
+            providers::capture_format_from_caps(caps.as_ref(), 30)
+                .unwrap()
+                .pixel_format,
+            PixelFormat::BayerBg8
+        );
+    }
+
+    #[test]
+    fn packed_buffer_validation_rejects_mismatches() {
+        let error = providers::validate_packed_buffer_len(
+            &CaptureConfiguration {
+                width: 32,
+                height: 16,
+                pixel_format: PixelFormat::Mono16,
+                fps: 30,
+            },
+            32 * 16,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("payload length mismatch"));
+    }
+
+    #[test]
+    fn synthetic_provider_streams_configured_fixed_formats() {
+        for format in [
+            PixelFormat::Mono8,
+            PixelFormat::Mono16,
+            PixelFormat::BayerBg8,
+            PixelFormat::Uyvy,
+        ] {
+            let width = if format == PixelFormat::Uyvy { 32 } else { 31 };
+            let height = 16;
+            let mut device = DeviceDaemon::spawn(DeviceDaemonConfig {
+                bind: "127.0.0.1:0".parse().unwrap(),
+                width,
+                height,
+                pixel_format: format,
+                provider: ProviderConfig::Synthetic,
+                ..DeviceDaemonConfig::default()
             })
             .unwrap();
-        assert_eq!(applied.format.unwrap().pixel_format, PixelFormat::Uyvy);
 
-        let error = connection
-            .configure(RequestedStreamConfiguration {
-                stream_name: "stream0".to_string(),
-                profile: StreamProfileId::CompatibilityV1,
-                destination_host: "127.0.0.1".to_string(),
-                port: 5000,
-                bind_address: "127.0.0.1".to_string(),
-                packet_delay_ns: 0,
-                max_packet_size: 1200,
-                format: Some(eevideo_control::StreamFormatDescriptor {
-                    payload_type: PayloadType::Image,
-                    pixel_format: PixelFormat::Rgb8,
-                    width: 640,
-                    height: 480,
-                }),
-            })
-            .unwrap_err();
-        assert_eq!(error.kind(), eevideo_control::ControlErrorKind::AppliedValueMismatch);
+            let receive = UdpSocket::bind("127.0.0.1:0").unwrap();
+            receive
+                .set_read_timeout(Some(Duration::from_millis(200)))
+                .unwrap();
+            let port = receive.local_addr().unwrap().port();
+
+            let backend = CoapRegisterBackend::new(CoapRegisterBackendConfig {
+                request_timeout: Duration::from_millis(250),
+                ..CoapRegisterBackendConfig::default()
+            });
+            let target = ControlTarget {
+                device_uri: device.uri(),
+                transport_kind: ControlTransportKind::CoapRegister,
+                auth_scope: None,
+            };
+            let mut connection = backend.connect(&target).unwrap();
+            let applied = connection
+                .configure(RequestedStreamConfiguration {
+                    stream_name: "stream0".to_string(),
+                    profile: StreamProfileId::CompatibilityV1,
+                    destination_host: "127.0.0.1".to_string(),
+                    port,
+                    bind_address: "127.0.0.1".to_string(),
+                    packet_delay_ns: 0,
+                    max_packet_size: 1200,
+                    format: Some(StreamFormatDescriptor {
+                        payload_type: PayloadType::Image,
+                        pixel_format: format,
+                        width,
+                        height,
+                    }),
+                })
+                .unwrap();
+
+            assert_eq!(applied.format.unwrap().pixel_format, format);
+            connection.start(&applied.stream_id).unwrap();
+            let frame = receive_frame(&receive, Duration::from_secs(3));
+            assert_eq!(frame.pixel_format, format);
+            assert_eq!(frame.width, width);
+            assert_eq!(frame.height, height);
+
+            device.shutdown();
+        }
+    }
+
+    #[test]
+    fn cli_maps_provider_specific_options() {
+        let cli = Cli::try_parse_from([
+            "eedeviced",
+            "--input",
+            "v4l2",
+            "--device",
+            "/dev/video0",
+            "--pixel-format",
+            "gray16le",
+        ])
+        .unwrap();
+        let config = DeviceDaemonConfig::try_from(cli).unwrap();
+
+        assert_eq!(
+            config.provider,
+            ProviderConfig::V4l2 {
+                device: "/dev/video0".to_string()
+            }
+        );
+        assert_eq!(config.pixel_format, PixelFormat::Mono16);
+    }
+
+    #[test]
+    fn legacy_input_enum_still_parses_synthetic_and_argus() {
+        let cli = Cli::try_parse_from(["eedeviced", "--input", "synthetic"]).unwrap();
+        let config = DeviceDaemonConfig::try_from(cli).unwrap();
+        assert_eq!(config.provider, ProviderConfig::Synthetic);
+
+        let cli = Cli::try_parse_from(["eedeviced", "--input", "argus"]).unwrap();
+        let config = DeviceDaemonConfig::try_from(cli).unwrap();
+        assert_eq!(config.provider, ProviderConfig::Argus { sensor_id: 0 });
+    }
+
+    fn receive_frame(socket: &UdpSocket, timeout: Duration) -> eevideo_proto::VideoFrame {
+        let deadline = Instant::now() + timeout;
+        let mut assembler = FrameAssembler::new(Duration::from_secs(1));
+        let stats = StreamStats::default();
+        let mut buffer = [0u8; 2048];
+
+        loop {
+            if Instant::now() >= deadline {
+                panic!("timed out waiting for a frame");
+            }
+
+            let size = match socket.recv(&mut buffer) {
+                Ok(size) => size,
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::WouldBlock
+                        || err.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    continue;
+                }
+                Err(err) => panic!("failed to receive frame packet: {err}"),
+            };
+
+            let packet = CompatPacket::parse(&buffer[..size]).unwrap();
+            if let Some(FrameEvent::Complete(frame)) =
+                assembler.ingest(packet, Instant::now(), &stats).unwrap()
+            {
+                return frame;
+            }
+        }
     }
 }

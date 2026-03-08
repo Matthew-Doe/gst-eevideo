@@ -118,7 +118,8 @@ pub fn load_embedded_feature_catalog() -> Result<FeatureCatalog, YamlError> {
 }
 
 pub fn parse_feature_catalog(source: &str) -> Result<FeatureCatalog, YamlError> {
-    let raw: BTreeMap<String, FeatureDefinition> = serde_yaml::from_str(source).map_err(YamlError::Parse)?;
+    let raw: BTreeMap<String, FeatureDefinition> =
+        serde_yaml::from_str(source).map_err(YamlError::Parse)?;
     let mut features = BTreeMap::new();
     for (key, definition) in raw {
         let trimmed = key.trim_start_matches("0x");
@@ -137,7 +138,10 @@ pub fn read_device_config(path: impl AsRef<Path>) -> Result<DeviceConfig, YamlEr
             .map_err(YamlError::Io)?
             .filter_map(Result::ok)
             .map(|entry| entry.path())
-            .filter(|path| path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("yaml")))
+            .filter(|path| {
+                path.extension()
+                    .map_or(false, |ext| ext.eq_ignore_ascii_case("yaml"))
+            })
             .collect::<Vec<_>>();
         entries.sort();
         match entries.as_slice() {
@@ -153,10 +157,7 @@ pub fn read_device_config(path: impl AsRef<Path>) -> Result<DeviceConfig, YamlEr
     serde_yaml::from_str(&source).map_err(YamlError::Parse)
 }
 
-pub fn write_device_config(
-    path: impl AsRef<Path>,
-    config: &DeviceConfig,
-) -> Result<(), YamlError> {
+pub fn write_device_config(path: impl AsRef<Path>, config: &DeviceConfig) -> Result<(), YamlError> {
     fs::write(path, device_config_to_string(config)?).map_err(YamlError::Io)
 }
 
@@ -204,7 +205,9 @@ mod tests {
     #[test]
     fn embedded_feature_catalog_contains_stream_definition() {
         let catalog = load_embedded_feature_catalog().unwrap();
-        let stream = catalog.get(&0x103001).expect("video stream feature present");
+        let stream = catalog
+            .get(&0x103001)
+            .expect("video stream feature present");
         assert_eq!(stream.short_name, "stream");
     }
 

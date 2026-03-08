@@ -70,7 +70,7 @@ pub const COMPAT_STREAM_PROFILE: CompatStreamProfile = CompatStreamProfile {
 
 #[cfg(test)]
 mod tests {
-    use super::{COMPAT_PROFILE_NAME, COMPAT_STREAM_PROFILE, StreamProfileId};
+    use super::{StreamProfileId, COMPAT_PROFILE_NAME, COMPAT_STREAM_PROFILE};
 
     #[test]
     fn compatibility_profile_identity_is_stable() {
@@ -79,6 +79,9 @@ mod tests {
             COMPAT_STREAM_PROFILE.id.as_str(),
             StreamProfileId::CompatibilityV1.as_str()
         );
-        assert_eq!(COMPAT_STREAM_PROFILE.minimum_mtu(), COMPAT_STREAM_PROFILE.leader_size);
+        assert_eq!(
+            COMPAT_STREAM_PROFILE.minimum_mtu(),
+            COMPAT_STREAM_PROFILE.leader_size
+        );
     }
 }

@@ -96,14 +96,20 @@ impl RegisterClient {
     }
 
     pub fn read_u32(&self, address: u32) -> Result<u32, RegisterError> {
-        let payload = self.execute(address, None, RegisterAccess::read(RegisterReadKind::Register, 1))?;
+        let payload = self.execute(
+            address,
+            None,
+            RegisterAccess::read(RegisterReadKind::Register, 1),
+        )?;
         if payload.len() < 4 {
             return Err(RegisterError::Response(format!(
                 "u32 register read requires 4 bytes, got {}",
                 payload.len()
             )));
         }
-        Ok(u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]))
+        Ok(u32::from_be_bytes([
+            payload[0], payload[1], payload[2], payload[3],
+        ]))
     }
 
     pub fn write_u32(&self, address: u32, value: u32) -> Result<(), RegisterError> {
@@ -116,12 +122,20 @@ impl RegisterClient {
     }
 
     pub fn read_string(&self, address: u32) -> Result<String, RegisterError> {
-        let payload = self.execute(address, None, RegisterAccess::read(RegisterReadKind::String, 1))?;
+        let payload = self.execute(
+            address,
+            None,
+            RegisterAccess::read(RegisterReadKind::String, 1),
+        )?;
         let trimmed = payload.split(|byte| *byte == 0).next().unwrap_or(&[]);
         Ok(String::from_utf8(trimmed.to_vec()).map_err(RegisterError::InvalidString)?)
     }
 
-    pub fn read_named_u32(&self, device: &DeviceConfig, register_name: &str) -> Result<u32, RegisterError> {
+    pub fn read_named_u32(
+        &self,
+        device: &DeviceConfig,
+        register_name: &str,
+    ) -> Result<u32, RegisterError> {
         let register = device
             .registers
             .get(register_name)
@@ -162,18 +176,27 @@ impl RegisterClient {
         if let Some(option_value) = access.option_value()? {
             options.push(CoapOption::new(OPTION_EEV_REG_ACCESS, [option_value]));
         }
-        options.push(CoapOption::new(OPTION_EEV_BINARY_ADDRESS, address.to_be_bytes()));
+        options.push(CoapOption::new(
+            OPTION_EEV_BINARY_ADDRESS,
+            address.to_be_bytes(),
+        ));
 
         let request = CoapMessage::new(
             CoapMessageType::Confirmable,
-            if payload.is_some() { CODE_PUT } else { CODE_GET },
+            if payload.is_some() {
+                CODE_PUT
+            } else {
+                CODE_GET
+            },
             message_id,
             token.clone(),
             options,
             payload.unwrap_or(&[]).to_vec(),
         );
         let bytes = request.encode().map_err(RegisterError::Coap)?;
-        socket.send_to(&bytes, self.device_addr).map_err(RegisterError::Io)?;
+        socket
+            .send_to(&bytes, self.device_addr)
+            .map_err(RegisterError::Io)?;
 
         let mut buffer = [0u8; 2048];
         let (size, _) = socket.recv_from(&mut buffer).map_err(RegisterError::Io)?;
@@ -192,7 +215,9 @@ impl RegisterClient {
             )));
         }
         if response.token != token {
-            return Err(RegisterError::Response("response token mismatch".to_string()));
+            return Err(RegisterError::Response(
+                "response token mismatch".to_string(),
+            ));
         }
         if response.code != CODE_CHANGED && response.code != CODE_CONTENT {
             let description = response_code_description(response.code)
@@ -254,8 +279,12 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use crate::coap::{CoapMessage, CoapMessageType, CoapOption, CODE_CONTENT, OPTION_EEV_BINARY_ADDRESS};
-    use crate::yaml::{DeviceCapabilities, DeviceConfig, DeviceLocation, DeviceMemoryMap, DeviceRegisterValue};
+    use crate::coap::{
+        CoapMessage, CoapMessageType, CoapOption, CODE_CONTENT, OPTION_EEV_BINARY_ADDRESS,
+    };
+    use crate::yaml::{
+        DeviceCapabilities, DeviceConfig, DeviceLocation, DeviceMemoryMap, DeviceRegisterValue,
+    };
 
     use super::{RegisterAccess, RegisterClient, RegisterReadKind};
 
@@ -327,6 +356,9 @@ mod tests {
             registers,
         };
 
-        assert_eq!(client.read_named_u32(&device, "stream0_DestPort").unwrap(), 9);
+        assert_eq!(
+            client.read_named_u32(&device, "stream0_DestPort").unwrap(),
+            9
+        );
     }
 }

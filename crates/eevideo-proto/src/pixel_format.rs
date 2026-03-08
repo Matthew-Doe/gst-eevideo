@@ -22,7 +22,9 @@ pub enum PixelFormatError {
 impl fmt::Display for PixelFormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnsupportedPfnc(value) => write!(f, "unsupported PFNC pixel format 0x{value:08x}"),
+            Self::UnsupportedPfnc(value) => {
+                write!(f, "unsupported PFNC pixel format 0x{value:08x}")
+            }
             Self::UnsupportedCaps { media_type, format } => {
                 write!(f, "unsupported caps {media_type} with format {format}")
             }
@@ -167,4 +169,3 @@ mod tests {
         );
     }
 }
-

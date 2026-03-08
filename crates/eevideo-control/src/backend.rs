@@ -136,7 +136,9 @@ impl ControlBackend for CoapRegisterBackend {
         let requested_host = if target.device_uri.trim().is_empty() {
             None
         } else {
-            parse_device_endpoint(&target.device_uri).ok().map(|endpoint| endpoint.host)
+            parse_device_endpoint(&target.device_uri)
+                .ok()
+                .map(|endpoint| endpoint.host)
         };
 
         let responses = discover_devices(
@@ -202,7 +204,11 @@ impl CoapRegisterConnection {
             supported_profiles: vec![StreamProfileId::CompatibilityV1],
             supported_pixel_formats,
             multicast_supported: self.device.capabilities.mult_addr,
-            packet_pacing_supported: self.device.registers.keys().any(|name| name.ends_with("_Delay")),
+            packet_pacing_supported: self
+                .device
+                .registers
+                .keys()
+                .any(|name| name.ends_with("_Delay")),
             native_framing_supported: false,
         }
     }
@@ -462,7 +468,10 @@ fn persist_device_config(
         fs::create_dir_all(parent).map_err(|err| {
             ControlError::new(
                 ControlErrorKind::Other,
-                format!("failed to create YAML directory {}: {err}", parent.display()),
+                format!(
+                    "failed to create YAML directory {}: {err}",
+                    parent.display()
+                ),
             )
         })?;
     }
@@ -470,9 +479,9 @@ fn persist_device_config(
 }
 
 fn yaml_path(yaml_root: &Path, endpoint: &DeviceEndpoint) -> PathBuf {
-    let is_file = yaml_root
-        .extension()
-        .map_or(false, |ext| ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml"));
+    let is_file = yaml_root.extension().map_or(false, |ext| {
+        ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml")
+    });
     if is_file {
         return yaml_root.to_path_buf();
     }
@@ -605,7 +614,8 @@ fn introspect_device_config(
                 continue;
             };
             for register in &pointer.registers {
-                let register_name = format!("{}{}_{}", definition.short_name, instance, register.name);
+                let register_name =
+                    format!("{}{}_{}", definition.short_name, instance, register.name);
                 let register_addr = base_addr.saturating_add(register.offset.saturating_mul(4));
                 let mut value = DeviceRegisterValue {
                     addr: register_addr,
@@ -795,8 +805,14 @@ mod tests {
         assert!(running.running);
 
         let registers = device.registers();
-        assert_eq!(registers.get(&STREAM_DELAY_ADDR).copied().unwrap() & 0x00ff_ffff, 321);
-        assert_eq!(registers.get(&STREAM_DEST_PORT_ADDR).copied().unwrap() & 0xffff, 5000);
+        assert_eq!(
+            registers.get(&STREAM_DELAY_ADDR).copied().unwrap() & 0x00ff_ffff,
+            321
+        );
+        assert_eq!(
+            registers.get(&STREAM_DEST_PORT_ADDR).copied().unwrap() & 0xffff,
+            5000
+        );
         assert_eq!(
             registers.get(&STREAM_DEST_IP_ADDR).copied().unwrap(),
             u32::from(Ipv4Addr::new(239, 1, 2, 3))
@@ -809,8 +825,14 @@ mod tests {
             registers.get(&STREAM_MAX_PACKET_ADDR).copied().unwrap() & (1 << 16),
             0
         );
-        assert_eq!(registers.get(&STREAM_WIDTH_ADDR).copied().unwrap() & 0xffff, 320);
-        assert_eq!(registers.get(&STREAM_HEIGHT_ADDR).copied().unwrap() & 0xffff, 240);
+        assert_eq!(
+            registers.get(&STREAM_WIDTH_ADDR).copied().unwrap() & 0xffff,
+            320
+        );
+        assert_eq!(
+            registers.get(&STREAM_HEIGHT_ADDR).copied().unwrap() & 0xffff,
+            240
+        );
         assert_eq!(
             registers.get(&STREAM_PIXEL_FORMAT_ADDR).copied().unwrap(),
             PixelFormat::Mono8.pfnc() & 0xffff
@@ -954,9 +976,7 @@ mod tests {
                         .options
                         .iter()
                         .find(|option| option.number == OPTION_EEV_BINARY_ADDRESS)
-                        .map(|option| {
-                            u32::from_be_bytes(option.value.clone().try_into().unwrap())
-                        })
+                        .map(|option| u32::from_be_bytes(option.value.clone().try_into().unwrap()))
                         .unwrap();
                     let reg_access = request
                         .options

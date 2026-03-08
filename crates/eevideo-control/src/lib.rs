@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use eevideo_proto::{PayloadType, PixelFormat, StreamProfileId};
 
-pub mod coap;
 pub mod backend;
+pub mod coap;
 pub mod controller;
 pub mod discovery;
 pub mod register;
@@ -11,11 +11,11 @@ pub mod register_map;
 pub mod yaml;
 
 pub use backend::{CoapRegisterBackend, CoapRegisterBackendConfig};
-pub use controller::{DeviceController, DeviceDescription, DeviceSummary};
 pub use coap::{
     CoapError, CoapMessage, CoapMessageType, CoapOption, OPTION_EEV_BINARY_ADDRESS,
     OPTION_EEV_REG_ACCESS,
 };
+pub use controller::{DeviceController, DeviceDescription, DeviceSummary};
 pub use discovery::{
     build_discovery_request, discover_devices, parse_discovery_advertisement,
     DiscoveryAdvertisement, DiscoveryError, DiscoveryInterface, DiscoveryLink, DiscoveryResponse,
@@ -366,7 +366,10 @@ impl ControlSession {
         &mut self,
         requested: RequestedStreamConfiguration,
     ) -> Result<AppliedStreamConfiguration, ControlError> {
-        if self.applied.as_ref().map(|applied| applied.stream_name.as_str())
+        if self
+            .applied
+            .as_ref()
+            .map(|applied| applied.stream_name.as_str())
             == Some(requested.stream_name.as_str())
             && self.requested == requested
         {
@@ -401,7 +404,11 @@ impl ControlSession {
     }
 
     pub fn stop(&mut self) -> Result<(), ControlError> {
-        let Some(stream_id) = self.applied.as_ref().map(|applied| applied.stream_id.clone()) else {
+        let Some(stream_id) = self
+            .applied
+            .as_ref()
+            .map(|applied| applied.stream_id.clone())
+        else {
             return Ok(());
         };
 

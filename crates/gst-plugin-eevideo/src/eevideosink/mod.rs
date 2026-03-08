@@ -11,5 +11,10 @@ glib::wrapper! {
 }
 
 pub fn register(plugin: Option<&gst::Plugin>) -> Result<(), glib::BoolError> {
-    gst::Element::register(plugin, "eevideosink", gst::Rank::NONE, EeVideoSink::static_type())
+    gst::Element::register(
+        plugin,
+        "eevideosink",
+        gst::Rank::NONE,
+        EeVideoSink::static_type(),
+    )
 }

@@ -5,7 +5,7 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
-description = "Single-stream EEVideo device daemon for synthetic and Jetson-backed inputs"
+description = "Single-stream EEVideo device daemon for synthetic, V4L2, GStreamer, and Jetson-backed inputs"
 
 [dependencies]
 anyhow.workspace = true

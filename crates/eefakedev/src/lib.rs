@@ -84,7 +84,10 @@ impl FakeDeviceConfig {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "eefakedev", about = "Fake EEVideo device daemon with a pure-Rust test-pattern source")]
+#[command(
+    name = "eefakedev",
+    about = "Fake EEVideo device daemon with a pure-Rust test-pattern source"
+)]
 struct Cli {
     #[arg(long, default_value = "0.0.0.0:5683")]
     bind: SocketAddr,
@@ -206,11 +209,9 @@ fn parse_pixel_format(value: &str) -> Result<PixelFormat, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        parse_pixel_format, FakeDeviceConfig, FakeDeviceServer,
-    };
-    use eevideo_device::{MAX_PACKET_ENABLE_BIT, STREAM_MAX_PACKET_ADDR};
+    use super::{parse_pixel_format, FakeDeviceConfig, FakeDeviceServer};
     use eevideo_control::register::{RegisterClient, RegisterError};
+    use eevideo_device::{MAX_PACKET_ENABLE_BIT, STREAM_MAX_PACKET_ADDR};
     use eevideo_proto::PixelFormat;
     use std::time::{Duration, Instant};
 
@@ -233,11 +234,7 @@ mod tests {
         }
     }
 
-    fn wait_until(
-        timeout: Duration,
-        mut predicate: impl FnMut() -> bool,
-        description: &str,
-    ) {
+    fn wait_until(timeout: Duration, mut predicate: impl FnMut() -> bool, description: &str) {
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {
             if predicate() {
@@ -275,8 +272,13 @@ mod tests {
             "fake device never observed the stream start transition",
         );
 
-        write_u32_eventually(&client, STREAM_MAX_PACKET_ADDR, 1200, Duration::from_secs(2))
-            .unwrap();
+        write_u32_eventually(
+            &client,
+            STREAM_MAX_PACKET_ADDR,
+            1200,
+            Duration::from_secs(2),
+        )
+        .unwrap();
         wait_until(
             Duration::from_secs(1),
             || device.stop_count() == 1,
