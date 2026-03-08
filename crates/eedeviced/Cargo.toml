@@ -1,0 +1,18 @@
+[package]
+name = "eedeviced"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+description = "Single-stream EEVideo device daemon for synthetic and Jetson-backed inputs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+ctrlc.workspace = true
+eevideo-device = { path = "../eevideo-device" }
+eevideo-proto = { path = "../eevideo-proto" }
+
+[dev-dependencies]
+eevideo-control = { path = "../eevideo-control" }
