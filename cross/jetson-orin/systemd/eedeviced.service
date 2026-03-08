@@ -1,0 +1,24 @@
+[Unit]
+Description=EEVideo device daemon
+After=network-online.target nvargus-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/eevideo/eedeviced.env
+WorkingDirectory=/opt/eevideo
+ExecStart=/opt/eevideo/eedeviced \
+  --bind ${EEVIDEO_BIND} \
+  --advertise-address ${EEVIDEO_ADVERTISE_ADDRESS} \
+  --iface ${EEVIDEO_IFACE} \
+  --input ${EEVIDEO_INPUT} \
+  --sensor-id ${EEVIDEO_SENSOR_ID} \
+  --width ${EEVIDEO_WIDTH} \
+  --height ${EEVIDEO_HEIGHT} \
+  --fps ${EEVIDEO_FPS} \
+  --mtu ${EEVIDEO_MTU}
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

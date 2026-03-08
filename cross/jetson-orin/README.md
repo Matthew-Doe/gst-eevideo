@@ -33,6 +33,12 @@ Notable outputs:
 - `libgsteevideo.so`
 - `eedeviced`
 
+Service packaging assets live under:
+
+```text
+cross/jetson-orin/systemd/
+```
+
 ## Optional Container Flow
 
 Build the helper image:

@@ -67,6 +67,29 @@ Recommended first mode:
 - `UYVY`
 - `mtu 1200`
 
+## Install As A Service
+
+After manual validation, install the packaged service assets:
+
+1. Copy `eedeviced` to `/opt/eevideo/eedeviced`.
+2. Copy [cross/jetson-orin/systemd/eedeviced.service](../cross/jetson-orin/systemd/eedeviced.service)
+   to `/etc/systemd/system/eedeviced.service`.
+3. Copy [cross/jetson-orin/systemd/eedeviced.env.example](../cross/jetson-orin/systemd/eedeviced.env.example)
+   to `/etc/eevideo/eedeviced.env` and edit the network and camera values.
+4. Run:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now eedeviced
+```
+
+To inspect startup:
+
+```sh
+sudo systemctl status eedeviced
+journalctl -u eedeviced -f
+```
+
 ## Host Verification
 
 From the host machine, verify control first:
