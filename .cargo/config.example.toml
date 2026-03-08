@@ -1,0 +1,11 @@
+[env]
+# Point these at your local Rust/GStreamer installation before copying this
+# file to .cargo/config.toml on a given machine.
+PKG_CONFIG = "pkg-config"
+PKG_CONFIG_PATH = "${env:GSTREAMER_PKG_CONFIG_PATH}"
+
+[target.x86_64-pc-windows-msvc]
+# Set GSTREAMER_LIB_DIR to the GStreamer import-library directory, for example:
+# C:/Program Files/gstreamer/1.0/msvc_x86_64/lib
+rustflags = ["-Lnative=${env:GSTREAMER_LIB_DIR}"]
+runner = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".cargo/windows-runner.ps1"]
