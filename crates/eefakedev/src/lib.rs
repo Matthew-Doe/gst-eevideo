@@ -863,11 +863,46 @@ mod tests {
         STREAM_DEST_PORT_ADDR, STREAM_MAX_PACKET_ADDR,
     };
     use eevideo_control::discovery::parse_discovery_advertisement;
-    use eevideo_control::register::RegisterClient;
+    use eevideo_control::register::{RegisterClient, RegisterError};
     use eevideo_control::{CoapMessage, CoapMessageType, CoapOption};
     use eevideo_proto::{PayloadType, PixelFormat};
     use std::net::Ipv4Addr;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+
+    fn write_u32_eventually(
+        client: &RegisterClient,
+        address: u32,
+        value: u32,
+        timeout: Duration,
+    ) -> Result<(), RegisterError> {
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            match client.write_u32(address, value) {
+                Ok(()) => return Ok(()),
+                Err(_) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
+    fn wait_until(
+        timeout: Duration,
+        mut predicate: impl FnMut() -> bool,
+        description: &str,
+    ) {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if predicate() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(predicate(), "{description}");
+    }
 
     #[test]
     fn register_map_uses_expected_defaults() {
@@ -916,16 +951,29 @@ mod tests {
             ..FakeDeviceConfig::default()
         })
         .unwrap();
-        std::thread::sleep(Duration::from_millis(50));
         let client = RegisterClient::new("127.0.0.1:0".parse().unwrap(), device.local_addr())
             .with_timeout(Duration::from_millis(250));
 
-        client
-            .write_u32(STREAM_MAX_PACKET_ADDR, MAX_PACKET_ENABLE_BIT | 1200)
+        write_u32_eventually(
+            &client,
+            STREAM_MAX_PACKET_ADDR,
+            MAX_PACKET_ENABLE_BIT | 1200,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        wait_until(
+            Duration::from_secs(1),
+            || device.start_count() == 1,
+            "fake device never observed the stream start transition",
+        );
+
+        write_u32_eventually(&client, STREAM_MAX_PACKET_ADDR, 1200, Duration::from_secs(2))
             .unwrap();
-        std::thread::sleep(Duration::from_millis(50));
-        client.write_u32(STREAM_MAX_PACKET_ADDR, 1200).unwrap();
-        std::thread::sleep(Duration::from_millis(50));
+        wait_until(
+            Duration::from_secs(1),
+            || device.stop_count() == 1,
+            "fake device never observed the stream stop transition",
+        );
 
         assert_eq!(device.start_count(), 1);
         assert_eq!(device.stop_count(), 1);
