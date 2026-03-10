@@ -189,16 +189,16 @@ impl CoapRegisterConnection {
     }
 
     fn capabilities(&self) -> ControlCapabilities {
-        let mut supported_pixel_formats = Vec::new();
-        if let Some(value) = self
+        let mut supported_pixel_formats = self
             .device
             .registers
-            .values()
-            .find_map(|register| register.int_value)
-            .and_then(|value| PixelFormat::from_pfnc(value as u32).ok())
-        {
-            supported_pixel_formats.push(value);
-        }
+            .iter()
+            .filter(|(name, _)| name.ends_with("_PixelFormat"))
+            .filter_map(|(_, register)| register.int_value)
+            .filter_map(|value| pixel_format_from_device(value as u32))
+            .collect::<Vec<_>>();
+        supported_pixel_formats.sort_by_key(|format| format.pfnc());
+        supported_pixel_formats.dedup();
 
         ControlCapabilities {
             supported_profiles: vec![StreamProfileId::CompatibilityV1],
@@ -628,7 +628,7 @@ fn introspect_device_config(
                 if value.access == "string" {
                     value.str_value =
                         Some(client.read_string(register_addr).map_err(register_error)?);
-                } else if register_addr > 0 && register_addr < 0x40000 {
+                } else {
                     value.int_value =
                         Some(client.read_u32(register_addr).map_err(register_error)? as u64);
                 }
