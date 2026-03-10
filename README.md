@@ -145,15 +145,21 @@ Recommended environment:
 Typical environment setup:
 
 ```powershell
+$env:GSTREAMER_ROOT = "C:\Program Files\gstreamer\1.0\msvc_x86_64"
 $env:PKG_CONFIG = "C:\ProgramData\chocolatey\bin\pkg-config.exe"
-$env:PKG_CONFIG_PATH = "C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig"
-$env:Path = "C:\Program Files\gstreamer\1.0\msvc_x86_64\bin;$env:Path"
+$env:PKG_CONFIG_PATH = "$env:GSTREAMER_ROOT\lib\pkgconfig"
+$env:GSTREAMER_LIB_DIR = "$env:GSTREAMER_ROOT\lib"
+$env:GSTREAMER_BIN_DIR = "$env:GSTREAMER_ROOT\bin"
+$env:Path = "$env:GSTREAMER_BIN_DIR;$env:Path"
 ```
 
 The Chocolatey `pkg-config` binary works with the standard `Program Files`
 install path. Some MSYS2 `pkg-config` builds mishandle that path on Windows. If
 you are stuck with one of those builds, use a no-space mirror or junction only
 as a fallback workaround.
+
+The checked-in Windows test runner is launched from `.cargo/config.toml`, so it
+does not depend on the shell's current working directory.
 
 ### Linux
 
@@ -193,6 +199,9 @@ cargo build -p eevid -p eeview -p eefakedev -p eedeviced
 
 `gst-plugin-eevideo` tests load GStreamer at runtime, so the GStreamer runtime
 DLL directory must be on `PATH` when you run the test binaries.
+
+On Windows, the checked-in runner will also derive the GStreamer `bin` directory
+from `GSTREAMER_BIN_DIR`, `GSTREAMER_LIB_DIR`, or `PKG_CONFIG_PATH` if needed.
 
 Run the feature-gated GStreamer integration tests:
 

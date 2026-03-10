@@ -72,17 +72,23 @@ Required:
 ### Windows PowerShell
 
 ```powershell
+$env:GSTREAMER_ROOT = "C:\Program Files\gstreamer\1.0\msvc_x86_64"
 $env:PKG_CONFIG = "C:\ProgramData\chocolatey\bin\pkg-config.exe"
-$env:PKG_CONFIG_PATH = "C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig"
-$env:Path = "C:\Program Files\gstreamer\1.0\msvc_x86_64\bin;$env:Path"
+$env:PKG_CONFIG_PATH = "$env:GSTREAMER_ROOT\lib\pkgconfig"
+$env:GSTREAMER_LIB_DIR = "$env:GSTREAMER_ROOT\lib"
+$env:GSTREAMER_BIN_DIR = "$env:GSTREAMER_ROOT\bin"
+$env:Path = "$env:GSTREAMER_BIN_DIR;$env:Path"
 ```
 
 ### Windows cmd.exe
 
 ```cmd
+set GSTREAMER_ROOT=C:\Program Files\gstreamer\1.0\msvc_x86_64
 set PKG_CONFIG=C:\ProgramData\chocolatey\bin\pkg-config.exe
-set PKG_CONFIG_PATH=C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig
-set PATH=C:\Program Files\gstreamer\1.0\msvc_x86_64\bin;%PATH%
+set PKG_CONFIG_PATH=%GSTREAMER_ROOT%\lib\pkgconfig
+set GSTREAMER_LIB_DIR=%GSTREAMER_ROOT%\lib
+set GSTREAMER_BIN_DIR=%GSTREAMER_ROOT%\bin
+set PATH=%GSTREAMER_BIN_DIR%;%PATH%
 ```
 
 ## Build And Test Workflow
@@ -95,6 +101,10 @@ cargo test --workspace
 
 `gst-plugin-eevideo` tests load GStreamer at runtime, so the GStreamer runtime
 DLL directory must already be on `PATH` before you run them.
+
+The checked-in Windows runner is launched from `.cargo/config.toml` and will
+also derive the GStreamer `bin` directory from `GSTREAMER_BIN_DIR`,
+`GSTREAMER_LIB_DIR`, or `PKG_CONFIG_PATH` when possible.
 
 ### Release build
 

@@ -13,6 +13,7 @@ ExecStart=/opt/eevideo/eedeviced \
   --iface ${EEVIDEO_IFACE} \
   --input ${EEVIDEO_INPUT} \
   --sensor-id ${EEVIDEO_SENSOR_ID} \
+  --pixel-format ${EEVIDEO_PIXEL_FORMAT} \
   --width ${EEVIDEO_WIDTH} \
   --height ${EEVIDEO_HEIGHT} \
   --fps ${EEVIDEO_FPS} \

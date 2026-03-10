@@ -190,6 +190,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now eedeviced
 ```
 
+Keep `EEVIDEO_PIXEL_FORMAT=uyvy` for the current Argus path. The packaged
+service now passes pixel format explicitly instead of relying on CLI defaults.
+
 Check status:
 
 ```sh

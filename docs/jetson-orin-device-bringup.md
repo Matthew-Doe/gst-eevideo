@@ -81,7 +81,8 @@ After manual validation, install the packaged service assets:
 2. Copy [cross/jetson-orin/systemd/eedeviced.service](../cross/jetson-orin/systemd/eedeviced.service)
    to `/etc/systemd/system/eedeviced.service`.
 3. Copy [cross/jetson-orin/systemd/eedeviced.env.example](../cross/jetson-orin/systemd/eedeviced.env.example)
-   to `/etc/eevideo/eedeviced.env` and edit the network and camera values.
+   to `/etc/eevideo/eedeviced.env` and edit the network, camera, and
+   `EEVIDEO_PIXEL_FORMAT` values.
 4. Run:
 
 ```sh
