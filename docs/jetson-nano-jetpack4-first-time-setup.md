@@ -184,6 +184,7 @@ You should see:
 - one stream named `stream0`
 - `compatibility-v1`
 - `UYVY 1280x720`
+- `stream stream0: UYVY 1280x720 @ 30 fps`
 
 ## Step 7: Start A Control-Plane Smoke
 
@@ -206,7 +207,8 @@ cargo run -p eeview -- --device-uri coap://192.168.1.50:5683 --bind-address 192.
 ```
 
 That command tells the Nano where to send the stream, then starts the local
-receiver/viewer.
+receiver/viewer. The viewer HUD shows live FPS + stream mode by default; add
+`--no-overlay` if you want the video without the overlay.
 
 ## Step 9: Install EEVideo As A Service After Manual Success
 

@@ -148,6 +148,7 @@ You should see:
 - one device
 - one stream named `stream0`
 - `compatibility-v1`
+- `stream stream0: UYVY 1280x720 @ 30 fps`
 
 Then start managed viewing from the host:
 
@@ -156,7 +157,8 @@ cargo run -p eeview -- --device-uri coap://192.168.1.50:5683 --bind-address 192.
 ```
 
 That command tells the Jetson where to send the stream, then starts the local
-receiver/viewer.
+receiver/viewer. The viewer HUD shows live FPS + stream mode by default; add
+`--no-overlay` if you want the video without the overlay.
 
 ## Step 6: If You Want A Control-Only Smoke First
 

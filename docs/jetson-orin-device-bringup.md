@@ -121,6 +121,9 @@ Start a managed viewer:
 cargo run -p eeview -- --device-uri coap://192.168.1.50:5683 --bind-address 192.168.1.20 --port 5000
 ```
 
+The viewer HUD shows live FPS + stream mode by default; add `--no-overlay` if
+you want the video without the overlay.
+
 If you want a control-only smoke first:
 
 ```sh
@@ -130,7 +133,7 @@ cargo run -p eevid -- --device-uri coap://192.168.1.50:5683 stream-start --strea
 ## Expected Results
 
 - `eevid discover` lists the Jetson device
-- `eevid describe` reports one `stream0` register block
+- `eevid describe` reports one `stream0` register block and its advertised mode
 - `eeview` triggers remote configure/start successfully
 - live video arrives as `UYVY`
 

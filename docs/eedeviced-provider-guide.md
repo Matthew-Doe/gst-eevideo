@@ -196,11 +196,20 @@ Then describe it directly:
 cargo run -p eevid -- --device-uri coap://192.168.1.50:5683 describe
 ```
 
+The describe output now includes the advertised stream mode, for example:
+
+```text
+stream stream0: UYVY 1280x720 @ 30 fps
+```
+
 For a `UYVY` path, start managed viewing:
 
 ```sh
 cargo run -p eeview -- --device-uri coap://192.168.1.50:5683 --bind-address 192.168.1.20 --port 5000
 ```
+
+`eeview` shows a live FPS + mode HUD by default. Pass `--no-overlay` to turn
+that overlay off.
 
 For non-display-oriented formats like `Mono16` or Bayer, start with `eevid`
 control-plane verification first, then validate the stream with a receiver that

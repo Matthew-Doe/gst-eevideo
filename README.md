@@ -335,11 +335,20 @@ Describe a specific device:
 cargo run -p eevid -- --device-uri coap://192.168.1.50:5683 describe
 ```
 
+`eevid describe` now reports each stream's advertised mode, for example:
+
+```text
+stream stream0: UYVY 1280x720 @ 30 fps
+```
+
 Start managed viewing on a specific local receive address:
 
 ```sh
 cargo run -p eeview -- --device-uri coap://192.168.1.50:5683 --bind-address 192.168.1.20 --port 5000
 ```
+
+`eeview` now shows a live FPS + stream-mode HUD by default. Pass
+`--no-overlay` if you want a clean viewer window.
 
 Record with open codecs only:
 
@@ -367,11 +376,19 @@ Describe it directly:
 cargo run -p eevid -- --device-uri coap://192.168.1.50:5683 describe
 ```
 
+Look for the advertised mode line in the output:
+
+```text
+stream stream0: UYVY 1280x720 @ 30 fps
+```
+
 Start managed viewing from `PC2` using its concrete receive address:
 
 ```sh
 cargo run -p eeview -- --device-uri coap://192.168.1.50:5683 --bind-address 192.168.1.20 --port 5000
 ```
+
+The viewer HUD is enabled by default; add `--no-overlay` to disable it.
 
 That flow uses the CoAP/register control path to configure `PC1` and then starts a unicast
 compatibility stream carrying the animated test pattern.
