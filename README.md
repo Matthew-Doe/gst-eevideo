@@ -16,7 +16,7 @@ It also provides two device daemons:
 
 - `eefakedev` for a pure-Rust test-pattern EEVideo device you can run on a second machine
 - `eedeviced` for a single-stream EEVideo device daemon with synthetic, V4L2, generic
-  GStreamer, and Jetson Argus providers
+  GStreamer, and Jetson-oriented providers
 
 The current focus is a functional host-side MVP built around the existing
 public compatibility stream profile rather than a full native EEVideo transport
@@ -82,13 +82,13 @@ Explicitly out of scope for v1:
   - fake EEVideo device daemon with a pure-Rust test-pattern source
 - `crates/eedeviced`
   - single-stream EEVideo device daemon
-  - synthetic and Jetson Argus-backed capture paths
+  - synthetic, Argus, and pipeline-backed capture paths
 - `docs/`
   - implementation profile
   - interoperability smoke procedure
   - spec enhancement proposal
 - `cross/jetson-orin`
-  - cross-build notes and container assets
+  - Jetson cross-build notes, systemd assets, and container helpers
 
 ## Supported Formats
 
@@ -385,7 +385,7 @@ The current providers are:
 - `synthetic` for local testing and protocol validation
 - `v4l2` for Linux webcams and capture devices
 - `pipeline` for arbitrary GStreamer pipelines that expose `appsink name=framesink`
-- `argus` for Jetson Orin CSI capture through `nvarguscamerasrc`
+- `argus` for the turnkey Jetson Orin CSI path through `nvarguscamerasrc`
 
 The device stays fixed to one configured width, height, and pixel format per
 process start. Unsupported host-side width, height, and pixel-format writes are
@@ -409,7 +409,17 @@ Generic GStreamer mode is the escape hatch for unusual sources:
 ./eedeviced --bind 0.0.0.0:5683 --advertise-address 192.168.1.50 --iface eth0 --input pipeline --pixel-format bayer-bg8 --width 1920 --height 1080 --fps 30 --pipeline "videotestsrc is-live=true ! video/x-bayer,format=bggr,width=1920,height=1080,framerate=30/1 ! appsink name=framesink sync=false max-buffers=1 drop=true"
 ```
 
-Jetson Argus mode is the intended CSI camera path:
+Jetson Nano on JetPack 4.x uses the same `pipeline` provider with an explicit
+CSI pipeline:
+
+```sh
+./eedeviced --bind 0.0.0.0:5683 --advertise-address 192.168.1.50 --iface eth0 --input pipeline --pixel-format uyvy --width 1280 --height 720 --fps 30 --pipeline "nvarguscamerasrc sensor-id=0 ! video/x-raw(memory:NVMM),format=NV12,width=1280,height=720,framerate=30/1 ! nvvidconv ! video/x-raw,format=UYVY,width=1280,height=720 ! appsink name=framesink sync=false max-buffers=1 drop=true"
+```
+
+That pipeline must negotiate the same `UYVY 1280x720@30` mode that
+`eedeviced` is configured with. If the appsink caps drift, startup fails early.
+
+Jetson Orin on JetPack 6.x keeps the built-in Argus convenience path:
 
 ```sh
 ./eedeviced --bind 0.0.0.0:5683 --advertise-address 192.168.1.50 --iface eth0 --input argus --sensor-id 0 --pixel-format uyvy --width 1280 --height 720 --fps 30 --mtu 1200
@@ -419,6 +429,8 @@ See [docs/eedeviced-provider-guide.md](docs/eedeviced-provider-guide.md) for the
 provider matrix and example commands.
 For a first-time non-Jetson bring-up flow, use
 [docs/non-jetson-device-first-time-setup.md](docs/non-jetson-device-first-time-setup.md).
+For Jetson Nano on JetPack 4.x, use
+[docs/jetson-nano-jetpack4-first-time-setup.md](docs/jetson-nano-jetpack4-first-time-setup.md).
 See [docs/jetson-orin-device-bringup.md](docs/jetson-orin-device-bringup.md) for the full
 deploy and verification workflow.
 For the complete first-time setup path, use
@@ -432,6 +444,7 @@ For the complete first-time setup path, use
 - [docs/non-jetson-device-first-time-setup.md](docs/non-jetson-device-first-time-setup.md)
 - [docs/implementation-profile.md](docs/implementation-profile.md)
 - [docs/interop-smoke.md](docs/interop-smoke.md)
+- [docs/jetson-nano-jetpack4-first-time-setup.md](docs/jetson-nano-jetpack4-first-time-setup.md)
 - [docs/jetson-orin-first-time-setup.md](docs/jetson-orin-first-time-setup.md)
 - [docs/jetson-orin-device-bringup.md](docs/jetson-orin-device-bringup.md)
 - [docs/spec-enhancement-proposal.md](docs/spec-enhancement-proposal.md)

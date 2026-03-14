@@ -8,6 +8,8 @@ stream. If you already have binaries on the Jetson and only need the shorter
 operator flow, use [jetson-orin-device-bringup.md](jetson-orin-device-bringup.md).
 If you need the provider matrix for non-Jetson sources, use
 [eedeviced-provider-guide.md](eedeviced-provider-guide.md).
+If you are bringing up Jetson Nano on JetPack 4.x, use
+[jetson-nano-jetpack4-first-time-setup.md](jetson-nano-jetpack4-first-time-setup.md).
 
 ## What You Need
 
@@ -173,6 +175,7 @@ Expected result:
 Once manual startup is stable, use the packaged service files:
 
 - `cross/jetson-orin/systemd/eedeviced.service`
+- `cross/jetson-orin/systemd/eedeviced-launch.sh`
 - `cross/jetson-orin/systemd/eedeviced.env.example`
 
 Install them on the Jetson:
@@ -180,7 +183,9 @@ Install them on the Jetson:
 ```sh
 sudo mkdir -p /etc/eevideo
 sudo cp cross/jetson-orin/systemd/eedeviced.service /etc/systemd/system/
+sudo cp cross/jetson-orin/systemd/eedeviced-launch.sh /opt/eevideo/
 sudo cp cross/jetson-orin/systemd/eedeviced.env.example /etc/eevideo/eedeviced.env
+sudo chmod +x /opt/eevideo/eedeviced-launch.sh
 ```
 
 Edit `/etc/eevideo/eedeviced.env`, then enable the service:

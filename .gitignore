@@ -6,6 +6,7 @@ local-gstreamer/
 .vs/
 .vscode/
 .idea/
+.worktrees/
 
 *.user
 *.suo

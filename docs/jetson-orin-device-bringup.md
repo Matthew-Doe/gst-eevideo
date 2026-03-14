@@ -7,6 +7,8 @@ If you need the full first-time setup path from a fresh board, start with
 [jetson-orin-first-time-setup.md](jetson-orin-first-time-setup.md).
 If you need the provider matrix for non-Jetson sources, use
 [eedeviced-provider-guide.md](eedeviced-provider-guide.md).
+If you are bringing up Jetson Nano on JetPack 4.x, use
+[jetson-nano-jetpack4-first-time-setup.md](jetson-nano-jetpack4-first-time-setup.md).
 
 ## Goal
 
@@ -80,10 +82,12 @@ After manual validation, install the packaged service assets:
 1. Copy `eedeviced` to `/opt/eevideo/eedeviced`.
 2. Copy [cross/jetson-orin/systemd/eedeviced.service](../cross/jetson-orin/systemd/eedeviced.service)
    to `/etc/systemd/system/eedeviced.service`.
-3. Copy [cross/jetson-orin/systemd/eedeviced.env.example](../cross/jetson-orin/systemd/eedeviced.env.example)
+3. Copy [cross/jetson-orin/systemd/eedeviced-launch.sh](../cross/jetson-orin/systemd/eedeviced-launch.sh)
+   to `/opt/eevideo/eedeviced-launch.sh` and make it executable.
+4. Copy [cross/jetson-orin/systemd/eedeviced.env.example](../cross/jetson-orin/systemd/eedeviced.env.example)
    to `/etc/eevideo/eedeviced.env` and edit the network, camera, and
    `EEVIDEO_PIXEL_FORMAT` values.
-4. Run:
+5. Run:
 
 ```sh
 sudo systemctl daemon-reload

@@ -7,6 +7,8 @@ contract, but the frame source is now selected with `--input`.
 
 If you need a first-time bring-up path for non-Jetson devices, use
 [non-jetson-device-first-time-setup.md](non-jetson-device-first-time-setup.md).
+For Jetson Nano on JetPack 4.x, use
+[jetson-nano-jetpack4-first-time-setup.md](jetson-nano-jetpack4-first-time-setup.md).
 
 ## Fixed-Mode Behavior
 
@@ -123,6 +125,22 @@ Example Bayer path:
   --pipeline "videotestsrc is-live=true ! video/x-bayer,format=bggr,width=1920,height=1080,framerate=30/1 ! appsink name=framesink sync=false max-buffers=1 drop=true"
 ```
 
+Example Jetson Nano JetPack 4.x CSI path:
+
+```sh
+./eedeviced \
+  --bind 0.0.0.0:5683 \
+  --advertise-address 192.168.1.50 \
+  --iface eth0 \
+  --input pipeline \
+  --pixel-format uyvy \
+  --width 1280 \
+  --height 720 \
+  --fps 30 \
+  --mtu 1200 \
+  --pipeline "nvarguscamerasrc sensor-id=0 ! video/x-raw(memory:NVMM),format=NV12,width=1280,height=720,framerate=30/1 ! nvvidconv ! video/x-raw,format=UYVY,width=1280,height=720 ! appsink name=framesink sync=false max-buffers=1 drop=true"
+```
+
 Notes:
 
 - the full pipeline string is user-owned
@@ -130,10 +148,15 @@ Notes:
 - the pipeline must expose `appsink name=framesink`
 - the negotiated appsink caps must match the configured width, height, and pixel
   format
+- Jetson Nano on JetPack 4.x should use this provider, not the built-in `argus`
+  provider
+- for the Nano operator flow, use
+  [jetson-nano-jetpack4-first-time-setup.md](jetson-nano-jetpack4-first-time-setup.md)
 
 ### `argus`
 
-Use this on Jetson Orin for CSI capture through `nvarguscamerasrc`.
+Use this on Jetson Orin running JetPack 6.x for CSI capture through
+`nvarguscamerasrc`.
 
 Example:
 
@@ -155,6 +178,8 @@ Notes:
 
 - this provider is `UYVY` only in the current implementation
 - it uses `nvarguscamerasrc ! nvvidconv ! appsink`
+- Jetson Nano on JetPack 4.x should use the `pipeline` provider so the full CSI
+  pipeline stays operator-owned
 - for full Jetson setup, use [jetson-orin-first-time-setup.md](jetson-orin-first-time-setup.md)
 
 ## First Verification
