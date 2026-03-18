@@ -83,8 +83,9 @@ For Jetson Nano on JetPack 4.x:
   [docs/jetson-nano-jetpack4-first-time-setup.md](../../docs/jetson-nano-jetpack4-first-time-setup.md)
 
 For Jetson Orin, the recommended provider is also `pipeline`. The built-in
-`argus` provider remains available in the CLI, but it is not currently a tested
-deployment path in this repo.
+`argus` provider remains available in the CLI, but it is not currently a
+tested deployment path in this repo due to lack of matching hardware
+coverage.
 
 No Rust dependency downgrade is planned for Nano JetPack 4.x. The current
 workspace GStreamer sys crates still target system GStreamer `>= 1.14`.

@@ -83,7 +83,8 @@ Explicitly out of scope for v1:
 - `crates/eedeviced`
   - single-stream EEVideo device daemon
   - synthetic, V4L2, and pipeline-backed capture paths
-  - built-in Argus convenience path available but not currently validated
+  - built-in Argus convenience path available but not currently validated in
+    this repo due to lack of matching hardware coverage
 - `docs/`
   - implementation profile
   - interoperability smoke procedure
@@ -403,7 +404,8 @@ The current providers are:
 - `synthetic` for local testing and protocol validation
 - `v4l2` for Linux webcams and capture devices
 - `pipeline` for arbitrary GStreamer pipelines that expose `appsink name=framesink`
-- `argus` for a built-in Jetson CSI convenience path that is not currently validated
+- `argus` for a built-in Jetson CSI convenience path that is not currently
+  validated in this repo due to lack of matching hardware coverage
 
 For Jetson targets, the recommended path in this repo is:
 
@@ -411,9 +413,9 @@ For Jetson targets, the recommended path in this repo is:
 - use `--input pipeline` with an explicit `nvarguscamerasrc ... ! appsink` pipeline
 
 The built-in `argus` provider remains available in the CLI, but it is not
-currently a tested deployment path in this repo. The `cross/jetson-orin`
-helpers are kept as an experimental fallback rather than the recommended
-bring-up flow.
+currently a tested deployment path in this repo due to lack of matching
+hardware coverage. The `cross/jetson-orin` helpers are kept as an
+experimental fallback rather than the recommended bring-up flow.
 
 The device stays fixed to one configured width, height, and pixel format per
 process start. Unsupported host-side width, height, and pixel-format writes are
@@ -457,8 +459,9 @@ the CLI path is:
 ./eedeviced --bind 0.0.0.0:5683 --advertise-address 192.168.1.50 --iface eth0 --input argus --sensor-id 0 --pixel-format uyvy --width 1280 --height 720 --fps 30 --mtu 1200
 ```
 
-Treat that `argus` path as experimental for now and prefer the explicit
-`pipeline` provider in production or first-time bring-up docs.
+Treat that `argus` path as experimental for now. It is untested here because
+this repo does not currently have matching hardware coverage, so prefer the
+explicit `pipeline` provider in production or first-time bring-up docs.
 
 See [docs/eedeviced-provider-guide.md](docs/eedeviced-provider-guide.md) for the
 provider matrix and per-provider constraints.
@@ -480,8 +483,6 @@ directly to:
 - [docs/interop-smoke.md](docs/interop-smoke.md)
 - [docs/jetson-nano-jetpack4-first-time-setup.md](docs/jetson-nano-jetpack4-first-time-setup.md)
 - [docs/jetson-orin-first-time-setup.md](docs/jetson-orin-first-time-setup.md)
-- [docs/spec-enhancement-proposal.md](docs/spec-enhancement-proposal.md)
-- [docs/async-metadata-layout-plan.md](docs/async-metadata-layout-plan.md)
 
 ## Roadmap
 

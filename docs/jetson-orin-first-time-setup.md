@@ -15,9 +15,10 @@ For Jetson bring-up in this repo, the recommended path is building directly on
 the Jetson and running `--input pipeline` with an explicit
 `nvarguscamerasrc ... ! appsink` pipeline. The built-in `argus` provider
 remains available in the CLI, but it is not currently a tested deployment path
-here. The cross-build helpers are kept as a fallback, not the recommended
-workflow. If your Jetson camera or capture device is exposed as `/dev/videoX`,
-use the alternate `--input v4l2` path in this guide.
+here due to lack of matching hardware coverage in this repo. The cross-build
+helpers are kept as a fallback, not the recommended workflow. If your Jetson
+camera or capture device is exposed as `/dev/videoX`, use the alternate
+`--input v4l2` path in this guide.
 
 ## What You Need
 
@@ -345,5 +346,6 @@ Once the first setup works, the next things worth validating are:
 - a higher `mtu` on a known-good LAN
 
 If you choose to experiment with the built-in `argus` provider later, treat it
-as an unvalidated path and keep the explicit `pipeline` provider as the default
-for production or troubleshooting.
+as an unvalidated path. It is untested here due to lack of matching hardware
+coverage, so keep the explicit `pipeline` provider as the default for
+production or troubleshooting.

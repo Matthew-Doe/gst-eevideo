@@ -15,8 +15,8 @@ For Jetson bring-up in this repo, the recommended path is building directly on
 the Nano and running `--input pipeline` with an explicit
 `nvarguscamerasrc ... ! appsink` pipeline. The built-in `argus` provider
 remains available in the CLI, but it is not currently a tested deployment path
-here. The cross-build helpers are kept as a fallback, not the recommended
-workflow.
+here due to lack of matching hardware coverage in this repo. The cross-build
+helpers are kept as a fallback, not the recommended workflow.
 
 This guide assumes you already have:
 
@@ -335,7 +335,7 @@ The packaged launcher script passes only the provider-specific flags required by
 
 This guide still uses `nvarguscamerasrc` inside the explicit pipeline. That is
 separate from the built-in `argus` provider, which is not currently a tested
-deployment path in this repo.
+deployment path in this repo due to lack of matching hardware coverage.
 
 ## Common Bring-Up Problems
 

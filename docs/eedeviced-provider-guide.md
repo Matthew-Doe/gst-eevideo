@@ -17,8 +17,9 @@ For Jetson deployments in this repo, the recommended pattern is:
 - use `--input pipeline` with an explicit `nvarguscamerasrc ... ! appsink` pipeline
 
 The built-in `argus` provider remains available in the CLI, but it is not
-currently a tested deployment path here. The cross-build helpers are kept as a
-fallback, not the recommended bring-up flow.
+currently a tested deployment path here due to lack of matching hardware
+coverage in this repo. The cross-build helpers are kept as a fallback, not the
+recommended bring-up flow.
 
 Use this guide as a provider reference, not a full bring-up walkthrough. The
 setup guides above own the end-to-end build, install, verification, and service
@@ -196,8 +197,9 @@ Notes:
 ### `argus`
 
 This built-in convenience provider is available in the CLI, but it is not
-currently a tested deployment path in this repo. Prefer `pipeline` on Jetson,
-even when the camera source itself is `nvarguscamerasrc`.
+currently a tested deployment path in this repo due to lack of matching
+hardware coverage. Prefer `pipeline` on Jetson, even when the camera source
+itself is `nvarguscamerasrc`.
 
 Example:
 
@@ -219,7 +221,8 @@ Notes:
 
 - this provider is `UYVY` only in the current implementation
 - it uses `nvarguscamerasrc ! nvvidconv ! appsink`
-- it is not currently a validated Jetson bring-up path in this repo
+- it is not currently a validated Jetson bring-up path in this repo because we
+  do not have matching hardware coverage for it here
 - prefer `pipeline` so the full CSI path stays operator-owned
 - Jetson Nano on JetPack 4.x should use the `pipeline` provider so the full CSI
   pipeline stays operator-owned

@@ -253,8 +253,4 @@ Check:
 ## Related Docs
 
 - [interop-smoke.md](interop-smoke.md) for testing against upstream Go tools
-- [spec-enhancement-proposal.md](spec-enhancement-proposal.md) for protocol
-  rationale and future spec direction
-- [async-metadata-layout-plan.md](async-metadata-layout-plan.md) for future
-  metadata transport design exploration
 - https://gitlab.com/eevideo for original upstream source repositories

@@ -2,6 +2,9 @@ target/
 Cargo.lock
 local-gstreamer
 local-gstreamer/
+docs/async-metadata-layout-plan.md
+docs/spec-enhancement-proposal.md
+docs/superpowers/
 
 .vs/
 .vscode/

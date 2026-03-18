@@ -33,10 +33,3 @@ guessing between overlapping guides.
   interoperability scope and non-goals
 - [interop-smoke.md](interop-smoke.md) for manual upstream Go interoperability
   checks
-
-## Design Notes
-
-- [spec-enhancement-proposal.md](spec-enhancement-proposal.md) for protocol
-  rationale and future spec direction
-- [async-metadata-layout-plan.md](async-metadata-layout-plan.md) for the future
-  metadata transport design exploration
