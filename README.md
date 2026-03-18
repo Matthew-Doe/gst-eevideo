@@ -488,17 +488,16 @@ directly to:
 
 Near term:
 
-- improve Jetson cross-build validation
-
-Completed on this branch:
-
-- harden behavior under loss and reordering outside localhost
-- formalize the compatibility stream profile more clearly
-- preserve a clean seam for future control-plane integration
+- validate `eedeviced` on more real hardware, especially broader V4L2 devices
+  and Jetson Argus coverage once matching hardware is available
+- improve packaging and release ergonomics for the host tools and device daemons
+- expand interoperability validation beyond local loopback and synthetic-device
+  coverage
 
 Later:
 
-- native EEVideo framing
-- device control integration
+- native EEVideo framing beyond the current compatibility profile
+- richer device control and metadata transport
 - richer timing semantics
 - optional transport resilience features
+- multi-stream device support
