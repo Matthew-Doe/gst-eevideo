@@ -3,11 +3,107 @@ name: ci
 on:
   push:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+      - unlabeled
+      - ready_for_review
   workflow_dispatch:
+    inputs:
+      full_ci:
+        description: Force the heavier GStreamer and Jetson CI jobs
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  linux:
+  changes:
     runs-on: ubuntu-24.04
+    outputs:
+      rust_or_build_changed: ${{ steps.filter.outputs.rust_or_build }}
+      plugin_or_device_changed: ${{ steps.filter.outputs.plugin_or_device }}
+      jetson_changed: ${{ steps.filter.outputs.jetson }}
+      force_full_ci: ${{ steps.force.outputs.force_full_ci }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            rust_or_build:
+              - '.cargo/**'
+              - '.github/workflows/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'cross/jetson-orin/**'
+              - 'rust-toolchain*'
+            plugin_or_device:
+              - '.cargo/**'
+              - '.github/workflows/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/eedeviced/**'
+              - 'crates/eevideo-control/**'
+              - 'crates/eevideo-device/**'
+              - 'crates/eevideo-proto/**'
+              - 'crates/gst-plugin-eevideo/**'
+              - 'cross/jetson-orin/**'
+              - 'rust-toolchain*'
+            jetson:
+              - '.cargo/**'
+              - '.github/workflows/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/eedeviced/**'
+              - 'crates/eevideo-control/**'
+              - 'crates/eevideo-device/**'
+              - 'crates/eevideo-proto/**'
+              - 'crates/gst-plugin-eevideo/**'
+              - 'cross/jetson-orin/**'
+              - 'rust-toolchain*'
+
+      - name: Detect full-CI overrides
+        id: force
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          workflow_full_ci=false
+          pr_label_full_ci=false
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            workflow_full_ci="$(jq -r '.inputs.full_ci // "false"' "$GITHUB_EVENT_PATH")"
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] && \
+             jq -e 'any(.pull_request.labels[]?; .name == "full-ci")' "$GITHUB_EVENT_PATH" > /dev/null; then
+            pr_label_full_ci=true
+          fi
+
+          if [[ "$workflow_full_ci" == "true" || "$pr_label_full_ci" == "true" ]]; then
+            echo "force_full_ci=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "force_full_ci=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  linux-fast:
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: ${{ github.ref == 'refs/heads/main' || needs.changes.outputs.rust_or_build_changed == 'true' || needs.changes.outputs.force_full_ci == 'true' }}
     env:
       PKG_CONFIG: pkg-config
       PKG_CONFIG_PATH: ""
@@ -28,34 +124,83 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run protocol tests
-        run: cargo test -p eevideo-proto
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
 
-      - name: Build plugin workspace
-        run: cargo build --workspace
+      - name: Check formatting
+        run: cargo fmt --all --check
 
-      - name: Run default plugin tests
-        run: cargo test -p gst-plugin-eevideo --features gst-tests
+      - name: Run workspace tests
+        run: cargo test --workspace
 
-  jetson-cross:
+      - name: Run launcher tests
+        run: bash cross/jetson-orin/systemd/test-eedeviced-launch.sh
+
+  gst-integration:
     runs-on: ubuntu-24.04
-    if: ${{ vars.JETSON_SYSROOT_DIR != '' }}
+    needs:
+      - changes
+      - linux-fast
+    if: ${{ github.ref == 'refs/heads/main' || needs.changes.outputs.plugin_or_device_changed == 'true' || needs.changes.outputs.force_full_ci == 'true' }}
     env:
-      JETSON_SYSROOT_DIR: ${{ vars.JETSON_SYSROOT_DIR }}
       PKG_CONFIG: pkg-config
       PKG_CONFIG_PATH: ""
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install cross toolchain
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu pkg-config
+          sudo apt-get install -y \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-tools \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run GStreamer integration tests
+        run: cargo test -p gst-plugin-eevideo --features gst-tests
+
+  jetson-cross:
+    runs-on: ubuntu-24.04
+    needs:
+      - changes
+      - linux-fast
+    if: ${{ github.ref == 'refs/heads/main' || needs.changes.outputs.jetson_changed == 'true' || needs.changes.outputs.force_full_ci == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain and arm64 sysroot dependencies
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            pkg-config \
+            libc6-dev:arm64 \
+            libglib2.0-dev:arm64 \
+            libgstreamer1.0-dev:arm64 \
+            libgstreamer-plugins-base1.0-dev:arm64
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-gnu
 
-      - name: Cross build for Jetson Orin JetPack 6
-        run: cross/jetson-orin/build.sh "$JETSON_SYSROOT_DIR"
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cross build for Jetson-compatible sysroot
+        run: cross/jetson-orin/build.sh /
+
+      - name: Check cross-built artifacts
+        run: |
+          file target/aarch64-unknown-linux-gnu/release/eedeviced
+          file target/aarch64-unknown-linux-gnu/release/libgsteevideo.so
