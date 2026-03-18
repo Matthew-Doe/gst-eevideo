@@ -16,7 +16,7 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/Matthew-Doe/eevideo"
 rust-version = "1.78"
-version = "0.1.0"
+version = "0.1.1"
 
 [workspace.dependencies]
 anyhow = "1.0"
