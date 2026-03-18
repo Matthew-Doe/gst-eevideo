@@ -325,6 +325,10 @@ upstream repositories separately from that group and follow
 
 ## Host Tools
 
+Each host-side CLI includes built-in help. From a checkout, run
+`cargo run -p eevid -- --help`, `cargo run -p eeview -- --help`,
+`cargo run -p eefakedev -- --help`, or `cargo run -p eedeviced -- --help`.
+
 List discoverable devices:
 
 ```sh

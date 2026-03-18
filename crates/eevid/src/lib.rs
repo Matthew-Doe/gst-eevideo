@@ -11,18 +11,63 @@ use eevideo_control::{
 };
 use eevideo_proto::{PayloadType, PixelFormat, StreamProfileId};
 
+const CLI_AFTER_LONG_HELP: &str = "\
+Examples:
+  eevid discover
+  eevid --device-uri coap://192.168.1.50:5683 describe
+  eevid --device-uri coap://192.168.1.50:5683 reg-read --name stream0_MaxPacketSize
+  eevid --device-uri coap://192.168.1.50:5683 stream-start --stream-name stream0 --destination-host 192.168.1.20 --port 5000 --bind-address 192.168.1.20 --max-packet-size 1200
+";
+
+const REG_READ_AFTER_LONG_HELP: &str = "\
+Examples:
+  eevid --device-uri coap://192.168.1.50:5683 reg-read --name stream0_MaxPacketSize
+  eevid --device-uri coap://192.168.1.50:5683 reg-read --address 0x0018
+";
+
+const STREAM_START_AFTER_LONG_HELP: &str = "\
+Examples:
+  eevid --device-uri coap://192.168.1.50:5683 stream-start --stream-name stream0 --destination-host 192.168.1.20 --port 5000 --bind-address 192.168.1.20 --max-packet-size 1200
+";
+
 #[derive(Debug, Parser)]
-#[command(name = "eevid", about = "EEVideo discovery and register control CLI")]
+#[command(
+    name = "eevid",
+    about = "EEVideo discovery and register control CLI",
+    after_long_help = CLI_AFTER_LONG_HELP
+)]
 pub struct Cli {
-    #[arg(long, global = true)]
+    #[arg(
+        long,
+        global = true,
+        help = "Target a single device directly and skip discovery."
+    )]
     device_uri: Option<String>,
-    #[arg(long, global = true)]
+    #[arg(
+        long,
+        global = true,
+        help = "Prefer a specific local interface for discovery and control traffic."
+    )]
     iface: Option<String>,
-    #[arg(long, global = true, default_value_t = 1000)]
+    #[arg(
+        long,
+        global = true,
+        default_value_t = 1000,
+        help = "Set the discovery and request timeout in milliseconds."
+    )]
     timeout_ms: u64,
-    #[arg(long, global = true, default_value_t = 0)]
+    #[arg(
+        long,
+        global = true,
+        default_value_t = 0,
+        help = "Bind control traffic to a specific local UDP port."
+    )]
     local_port: u16,
-    #[arg(long, global = true)]
+    #[arg(
+        long,
+        global = true,
+        help = "Override the YAML metadata root used for symbolic register and field names."
+    )]
     yaml_root: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
@@ -30,22 +75,48 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    #[command(about = "Discover devices that answer the EEVideo CoAP/register control API.")]
     Discover,
+    #[command(about = "Describe a single device, including streams, profiles, and registers.")]
     Describe,
+    #[command(
+        about = "Read a register by symbolic name or numeric address.",
+        after_long_help = REG_READ_AFTER_LONG_HELP
+    )]
     RegRead(RegisterSelectorArgs),
+    #[command(about = "Write a raw register value by symbolic name or numeric address.")]
     RegWrite(RegisterWriteArgs),
+    #[command(about = "Read a named bitfield from a register.")]
     FieldRead(FieldReadArgs),
+    #[command(about = "Write a named bitfield inside a register.")]
     FieldWrite(FieldWriteArgs),
+    #[command(
+        about = "Apply stream destination and optional format settings without starting transmission."
+    )]
     StreamConfigure(StreamArgs),
+    #[command(
+        about = "Start a stream toward a host-side receiver.",
+        after_long_help = STREAM_START_AFTER_LONG_HELP
+    )]
     StreamStart(StreamArgs),
+    #[command(about = "Stop a previously configured stream.")]
     StreamStop(StreamStopArgs),
 }
 
 #[derive(Debug, Args)]
 struct RegisterSelectorArgs {
-    #[arg(long, conflicts_with = "address")]
+    #[arg(
+        long,
+        conflicts_with = "address",
+        help = "Use the YAML-backed symbolic register name."
+    )]
     name: Option<String>,
-    #[arg(long, value_parser = parse_u32_arg, conflicts_with = "name")]
+    #[arg(
+        long,
+        value_parser = parse_u32_arg,
+        conflicts_with = "name",
+        help = "Use the numeric register address (decimal or 0x-prefixed hex)."
+    )]
     address: Option<u32>,
 }
 
@@ -53,7 +124,10 @@ struct RegisterSelectorArgs {
 struct RegisterWriteArgs {
     #[command(flatten)]
     selector: RegisterSelectorArgs,
-    #[arg(value_parser = parse_u32_arg)]
+    #[arg(
+        value_parser = parse_u32_arg,
+        help = "Value to write (decimal or 0x-prefixed hex)."
+    )]
     value: u32,
 }
 
@@ -61,7 +135,7 @@ struct RegisterWriteArgs {
 struct FieldReadArgs {
     #[command(flatten)]
     selector: RegisterSelectorArgs,
-    #[arg(long)]
+    #[arg(long, help = "Bitfield name from the YAML register description.")]
     field: String,
 }
 
@@ -69,39 +143,73 @@ struct FieldReadArgs {
 struct FieldWriteArgs {
     #[command(flatten)]
     selector: RegisterSelectorArgs,
-    #[arg(long)]
+    #[arg(long, help = "Bitfield name from the YAML register description.")]
     field: String,
-    #[arg(value_parser = parse_u32_arg)]
+    #[arg(
+        value_parser = parse_u32_arg,
+        help = "Bitfield value to write (decimal or 0x-prefixed hex)."
+    )]
     value: u32,
 }
 
 #[derive(Debug, Args, Clone)]
 struct StreamArgs {
-    #[arg(long, default_value = "stream0")]
+    #[arg(
+        long,
+        default_value = "stream0",
+        help = "Advertised stream name to control."
+    )]
     stream_name: String,
-    #[arg(long)]
+    #[arg(long, help = "IPv4 address or hostname of the host-side receiver.")]
     destination_host: String,
-    #[arg(long)]
+    #[arg(long, help = "UDP port used by the host-side receiver.")]
     port: u16,
-    #[arg(long, default_value = "0.0.0.0")]
+    #[arg(
+        long,
+        default_value = "0.0.0.0",
+        help = "Advertise the local receive address that the device should target."
+    )]
     bind_address: String,
-    #[arg(long, default_value_t = 0)]
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Insert a delay between transmitted packets in nanoseconds."
+    )]
     packet_delay_ns: u64,
-    #[arg(long, default_value_t = 1200)]
+    #[arg(
+        long,
+        default_value_t = 1200,
+        help = "Maximum UDP payload size the device should emit."
+    )]
     max_packet_size: u16,
-    #[arg(long)]
+    #[arg(long, help = "Optional frame width override for configurable devices.")]
     width: Option<u32>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Optional frame height override for configurable devices."
+    )]
     height: Option<u32>,
-    #[arg(long, value_parser = parse_pixel_format_arg)]
+    #[arg(
+        long,
+        value_parser = parse_pixel_format_arg,
+        help = "Optional pixel format override for configurable devices."
+    )]
     pixel_format: Option<PixelFormat>,
 }
 
 #[derive(Debug, Args)]
 struct StreamStopArgs {
-    #[arg(long, default_value = "stream0")]
+    #[arg(
+        long,
+        default_value = "stream0",
+        help = "Advertised stream name to stop."
+    )]
     stream_name: String,
-    #[arg(long, default_value = "0.0.0.0")]
+    #[arg(
+        long,
+        default_value = "0.0.0.0",
+        help = "Receive address associated with the running stream configuration."
+    )]
     bind_address: String,
 }
 
@@ -110,12 +218,27 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = Cli::parse_from(args);
+    let cli = Cli::parse_from(normalize_help_flag_punctuation(args));
     let output = run(cli)?;
     if !output.is_empty() {
         println!("{output}");
     }
     Ok(())
+}
+
+fn normalize_help_flag_punctuation<I, T>(args: I) -> Vec<OsString>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+{
+    args.into_iter()
+        .map(Into::into)
+        .map(|arg: OsString| match arg.to_str() {
+            Some("--help,") => OsString::from("--help"),
+            Some("-h,") => OsString::from("-h"),
+            _ => arg,
+        })
+        .collect()
 }
 
 pub fn run(cli: Cli) -> Result<String> {
@@ -408,11 +531,25 @@ impl RegisterSelectorArgs {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
+    use std::ffi::OsString;
+
+    use clap::{CommandFactory, Parser};
     use eefakedev::{FakeDeviceConfig, FakeDeviceServer};
     use eevideo_proto::PixelFormat;
 
-    use super::{parse_pixel_format_arg, parse_u32_arg, run, Cli};
+    use super::{normalize_help_flag_punctuation, parse_pixel_format_arg, parse_u32_arg, run, Cli};
+
+    fn render_long_help(mut command: clap::Command) -> String {
+        let mut output = Vec::new();
+        command.write_long_help(&mut output).unwrap();
+        String::from_utf8(output).unwrap()
+    }
+
+    fn render_subcommand_long_help(name: &str) -> String {
+        let mut command = Cli::command();
+        let subcommand = command.find_subcommand_mut(name).unwrap();
+        render_long_help(subcommand.clone())
+    }
 
     #[test]
     fn parses_decimal_and_hex_numbers() {
@@ -424,6 +561,47 @@ mod tests {
     fn parses_pixel_formats() {
         assert_eq!(parse_pixel_format_arg("gray8").unwrap(), PixelFormat::Mono8);
         assert_eq!(parse_pixel_format_arg("UYVY").unwrap(), PixelFormat::Uyvy);
+    }
+
+    #[test]
+    fn top_level_help_mentions_examples_and_global_flags() {
+        let help = render_long_help(Cli::command());
+
+        assert!(help.contains("Examples:"));
+        assert!(help.contains("eevid discover"));
+        assert!(help.contains("Target a single device directly and skip discovery."));
+    }
+
+    #[test]
+    fn reg_read_help_explains_selector_usage() {
+        let help = render_subcommand_long_help("reg-read");
+
+        assert!(help.contains("Read a register by symbolic name or numeric address."));
+        assert!(help.contains(
+            "eevid --device-uri coap://192.168.1.50:5683 reg-read --name stream0_MaxPacketSize"
+        ));
+    }
+
+    #[test]
+    fn stream_start_help_includes_receiver_example() {
+        let help = render_subcommand_long_help("stream-start");
+
+        assert!(help.contains("Start a stream toward a host-side receiver."));
+        assert!(help.contains("eevid --device-uri coap://192.168.1.50:5683 stream-start"));
+    }
+
+    #[test]
+    fn normalizes_help_flags_with_trailing_commas() {
+        let args = normalize_help_flag_punctuation([
+            OsString::from("eevid"),
+            OsString::from("--help,"),
+            OsString::from("-h,"),
+            OsString::from("--other,"),
+        ]);
+
+        assert_eq!(args[1], OsString::from("--help"));
+        assert_eq!(args[2], OsString::from("-h"));
+        assert_eq!(args[3], OsString::from("--other,"));
     }
 
     #[test]

@@ -11,6 +11,16 @@ mod providers;
 pub use providers::ProviderConfig;
 use providers::{build_capture_backend, validate_provider_config};
 
+const CLI_AFTER_LONG_HELP: &str = "\
+Examples:
+  eedeviced --bind 127.0.0.1:5683 --input synthetic --pixel-format mono8 --width 640 --height 480
+  eedeviced --bind 0.0.0.0:5683 --advertise-address 192.168.1.50 --iface eth0 --input v4l2 --device /dev/video0 --pixel-format gray16le --width 640 --height 480 --fps 30 --mtu 1200
+  eedeviced --bind 0.0.0.0:5683 --advertise-address 192.168.1.50 --iface eth0 --input pipeline --pixel-format uyvy --width 1280 --height 720 --fps 30 --pipeline \"nvarguscamerasrc sensor-id=0 ! video/x-raw(memory:NVMM),format=NV12,width=1280,height=720,framerate=30/1 ! nvvidconv ! video/x-raw,format=UYVY,width=1280,height=720 ! appsink name=framesink sync=false max-buffers=1 drop=true\"
+
+Notes:
+  The argus provider is available but still experimental in this repo.
+";
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum InputKind {
     Synthetic,
@@ -106,33 +116,71 @@ impl DeviceDaemonConfig {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "eedeviced", about = "Single-stream EEVideo device daemon")]
+#[command(
+    name = "eedeviced",
+    about = "Single-stream EEVideo device daemon",
+    after_long_help = CLI_AFTER_LONG_HELP
+)]
 struct Cli {
-    #[arg(long, default_value = "0.0.0.0:5683")]
+    #[arg(
+        long,
+        default_value = "0.0.0.0:5683",
+        help = "Bind address for discovery and register control."
+    )]
     bind: SocketAddr,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Prefer a specific local interface for discovery replies."
+    )]
     iface: Option<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "IPv4 address advertised to remote hosts instead of the bind address."
+    )]
     advertise_address: Option<Ipv4Addr>,
-    #[arg(long, default_value = "stream0")]
+    #[arg(
+        long,
+        default_value = "stream0",
+        help = "Name of the single advertised stream."
+    )]
     stream_name: String,
-    #[arg(long, default_value_t = 1280)]
+    #[arg(long, default_value_t = 1280, help = "Fixed frame width in pixels.")]
     width: u32,
-    #[arg(long, default_value_t = 720)]
+    #[arg(long, default_value_t = 720, help = "Fixed frame height in pixels.")]
     height: u32,
-    #[arg(long, default_value = "uyvy")]
+    #[arg(
+        long,
+        default_value = "uyvy",
+        help = "Fixed transport pixel format the daemon advertises and enforces."
+    )]
     pixel_format: CliPixelFormat,
-    #[arg(long, default_value_t = 30)]
+    #[arg(
+        long,
+        default_value_t = 30,
+        help = "Fixed frame rate in frames per second."
+    )]
     fps: u32,
-    #[arg(long, default_value_t = 1200)]
+    #[arg(
+        long,
+        default_value_t = 1200,
+        help = "Maximum UDP payload size advertised to the host."
+    )]
     mtu: u16,
-    #[arg(long, default_value = "synthetic")]
+    #[arg(
+        long,
+        default_value = "synthetic",
+        help = "Capture provider used to supply frames to the daemon.",
+        long_help = "Capture provider used to supply frames to the daemon. synthetic needs no extra source, v4l2 requires --device, pipeline requires --pipeline ending in appsink name=framesink, and argus remains available but experimental in this repo."
+    )]
     input: InputKind,
-    #[arg(long)]
+    #[arg(long, help = "Jetson Argus sensor ID to use when --input argus.")]
     sensor_id: Option<u32>,
-    #[arg(long)]
+    #[arg(long, help = "Path to the V4L2 device node to use when --input v4l2.")]
     device: Option<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Full GStreamer pipeline description ending in appsink name=framesink when --input pipeline."
+    )]
     pipeline: Option<String>,
 }
 
@@ -232,8 +280,23 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = Cli::parse_from(args);
+    let cli = Cli::parse_from(normalize_help_flag_punctuation(args));
     run(DeviceDaemonConfig::try_from(cli)?)
+}
+
+fn normalize_help_flag_punctuation<I, T>(args: I) -> Vec<OsString>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+{
+    args.into_iter()
+        .map(Into::into)
+        .map(|arg: OsString| match arg.to_str() {
+            Some("--help,") => OsString::from("--help"),
+            Some("-h,") => OsString::from("-h"),
+            _ => arg,
+        })
+        .collect()
 }
 
 pub fn run(config: DeviceDaemonConfig) -> Result<()> {
@@ -304,10 +367,11 @@ fn require_cli_option(name: &str, value: Option<String>) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::net::UdpSocket;
     use std::time::{Duration, Instant};
 
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
     use eevideo_control::backend::{CoapRegisterBackend, CoapRegisterBackendConfig};
     use eevideo_control::{
         ControlBackend, ControlTarget, ControlTransportKind, RequestedStreamConfiguration,
@@ -320,7 +384,16 @@ mod tests {
 
     use eevideo_device::CaptureConfiguration;
 
-    use super::{providers, Cli, DeviceDaemon, DeviceDaemonConfig, ProviderConfig};
+    use super::{
+        normalize_help_flag_punctuation, providers, Cli, DeviceDaemon, DeviceDaemonConfig,
+        ProviderConfig,
+    };
+
+    fn render_long_help(mut command: clap::Command) -> String {
+        let mut output = Vec::new();
+        command.write_long_help(&mut output).unwrap();
+        String::from_utf8(output).unwrap()
+    }
 
     #[test]
     fn parses_pixel_format_aliases() {
@@ -335,6 +408,30 @@ mod tests {
         let cli = Cli::try_parse_from(["eedeviced", "--pixel-format", "gray16le"]).unwrap();
         let config = DeviceDaemonConfig::try_from(cli).unwrap();
         assert_eq!(config.pixel_format, PixelFormat::Mono16);
+    }
+
+    #[test]
+    fn top_level_help_mentions_provider_examples() {
+        let help = render_long_help(Cli::command());
+
+        assert!(help.contains("Examples:"));
+        assert!(help.contains("--input synthetic"));
+        assert!(help.contains("--input pipeline"));
+        assert!(help.contains("argus provider is available but still experimental in this repo"));
+    }
+
+    #[test]
+    fn normalizes_help_flags_with_trailing_commas() {
+        let args = normalize_help_flag_punctuation([
+            OsString::from("eedeviced"),
+            OsString::from("--help,"),
+            OsString::from("-h,"),
+            OsString::from("--other,"),
+        ]);
+
+        assert_eq!(args[1], OsString::from("--help"));
+        assert_eq!(args[2], OsString::from("-h"));
+        assert_eq!(args[3], OsString::from("--other,"));
     }
 
     #[test]

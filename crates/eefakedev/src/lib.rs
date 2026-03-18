@@ -9,6 +9,12 @@ use eevideo_device::{
 };
 use eevideo_proto::PixelFormat;
 
+const CLI_AFTER_LONG_HELP: &str = "\
+Examples:
+  eefakedev --advertise-address 192.168.1.50 --pixel-format gray8 --width 640 --height 480
+  eevid describe --device-uri coap://192.168.1.50:5683
+";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FakeDeviceConfig {
     pub bind: SocketAddr,
@@ -86,26 +92,63 @@ impl FakeDeviceConfig {
 #[derive(Debug, Parser)]
 #[command(
     name = "eefakedev",
-    about = "Fake EEVideo device daemon with a pure-Rust test-pattern source"
+    about = "Fake EEVideo device daemon with a pure-Rust test-pattern source",
+    after_long_help = CLI_AFTER_LONG_HELP
 )]
 struct Cli {
-    #[arg(long, default_value = "0.0.0.0:5683")]
+    #[arg(
+        long,
+        default_value = "0.0.0.0:5683",
+        help = "Bind address for discovery and register control."
+    )]
     bind: SocketAddr,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Prefer a specific local interface for discovery replies."
+    )]
     iface: Option<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "IPv4 address advertised to remote hosts instead of the bind address."
+    )]
     advertise_address: Option<Ipv4Addr>,
-    #[arg(long, default_value = "stream0")]
+    #[arg(
+        long,
+        default_value = "stream0",
+        help = "Name of the single advertised stream."
+    )]
     stream_name: String,
-    #[arg(long, default_value_t = 1280)]
+    #[arg(
+        long,
+        default_value_t = 1280,
+        help = "Synthetic frame width in pixels."
+    )]
     width: u32,
-    #[arg(long, default_value_t = 720)]
+    #[arg(
+        long,
+        default_value_t = 720,
+        help = "Synthetic frame height in pixels."
+    )]
     height: u32,
-    #[arg(long, default_value = "uyvy", value_parser = parse_pixel_format)]
+    #[arg(
+        long,
+        default_value = "uyvy",
+        value_parser = parse_pixel_format,
+        help = "Synthetic pixel format to advertise and transmit.",
+        long_help = "Synthetic pixel format to advertise and transmit. Supported aliases include gray8, gray16, rgb8, grbg, and bggr."
+    )]
     pixel_format: PixelFormat,
-    #[arg(long, default_value_t = 30)]
+    #[arg(
+        long,
+        default_value_t = 30,
+        help = "Synthetic frame rate in frames per second."
+    )]
     fps: u32,
-    #[arg(long, default_value_t = 1200)]
+    #[arg(
+        long,
+        default_value_t = 1200,
+        help = "Maximum UDP payload size advertised to the host."
+    )]
     mtu: u16,
 }
 
@@ -170,8 +213,23 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = Cli::parse_from(args);
+    let cli = Cli::parse_from(normalize_help_flag_punctuation(args));
     run(cli.into())
+}
+
+fn normalize_help_flag_punctuation<I, T>(args: I) -> Vec<OsString>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+{
+    args.into_iter()
+        .map(Into::into)
+        .map(|arg: OsString| match arg.to_str() {
+            Some("--help,") => OsString::from("--help"),
+            Some("-h,") => OsString::from("-h"),
+            _ => arg,
+        })
+        .collect()
 }
 
 pub fn run(config: FakeDeviceConfig) -> Result<()> {
@@ -209,11 +267,20 @@ fn parse_pixel_format(value: &str) -> Result<PixelFormat, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use super::{parse_pixel_format, FakeDeviceConfig, FakeDeviceServer};
+    use clap::CommandFactory;
     use eevideo_control::register::{RegisterClient, RegisterError};
     use eevideo_device::{MAX_PACKET_ENABLE_BIT, STREAM_MAX_PACKET_ADDR};
     use eevideo_proto::PixelFormat;
     use std::time::{Duration, Instant};
+
+    fn render_long_help(mut command: clap::Command) -> String {
+        let mut output = Vec::new();
+        command.write_long_help(&mut output).unwrap();
+        String::from_utf8(output).unwrap()
+    }
 
     fn write_u32_eventually(
         client: &RegisterClient,
@@ -287,6 +354,29 @@ mod tests {
 
         assert_eq!(device.start_count(), 1);
         assert_eq!(device.stop_count(), 1);
+    }
+
+    #[test]
+    fn top_level_help_mentions_examples_and_pixel_aliases() {
+        let help = render_long_help(super::Cli::command());
+
+        assert!(help.contains("Examples:"));
+        assert!(help.contains("eevid describe"));
+        assert!(help.contains("Supported aliases include gray8, gray16, rgb8, grbg, and bggr."));
+    }
+
+    #[test]
+    fn normalizes_help_flags_with_trailing_commas() {
+        let args = super::normalize_help_flag_punctuation([
+            OsString::from("eefakedev"),
+            OsString::from("--help,"),
+            OsString::from("-h,"),
+            OsString::from("--other,"),
+        ]);
+
+        assert_eq!(args[1], OsString::from("--help"));
+        assert_eq!(args[2], OsString::from("-h"));
+        assert_eq!(args[3], OsString::from("--other,"));
     }
 
     #[test]

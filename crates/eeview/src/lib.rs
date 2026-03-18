@@ -12,36 +12,94 @@ use eevideo_control::{
 use gst::prelude::*;
 use gstreamer as gst;
 
+const CLI_AFTER_LONG_HELP: &str = "\
+Examples:
+  eeview --device-uri coap://192.168.1.50:5683 --bind-address 192.168.1.20 --port 5000
+  eeview --device-uri coap://192.168.1.50:5683 --bind-address 192.168.1.20 --record capture.mkv --encoder av1
+";
+
 #[derive(Debug, Parser)]
-#[command(name = "eeview", about = "EEVideo live view and recorder CLI")]
+#[command(
+    name = "eeview",
+    about = "EEVideo live view and recorder CLI",
+    after_long_help = CLI_AFTER_LONG_HELP
+)]
 pub struct Cli {
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Target a single device directly instead of relying on discovery."
+    )]
     device_uri: Option<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Prefer a specific local interface for discovery and control traffic."
+    )]
     iface: Option<String>,
-    #[arg(long, default_value_t = 1000)]
+    #[arg(
+        long,
+        default_value_t = 1000,
+        help = "Set the discovery and request timeout in milliseconds."
+    )]
     timeout_ms: u64,
-    #[arg(long, default_value_t = 0)]
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Bind control traffic to a specific local UDP port."
+    )]
     local_port: u16,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Override the YAML metadata root used for symbolic register and field names."
+    )]
     yaml_root: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(long, help = "Bind the UDP receiver to a concrete local IPv4 address.")]
     bind_address: String,
-    #[arg(long, default_value_t = 5000)]
+    #[arg(
+        long,
+        default_value_t = 5000,
+        help = "UDP port that the managed device should send frames to."
+    )]
     port: u32,
-    #[arg(long, default_value_t = 2000)]
+    #[arg(
+        long,
+        default_value_t = 2000,
+        help = "Stop waiting for incoming frames after this many milliseconds."
+    )]
     source_timeout_ms: u64,
-    #[arg(long, default_value_t = 0)]
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Extra receiver latency to buffer before display."
+    )]
     latency_ms: u64,
-    #[arg(long, default_value = "stream0")]
+    #[arg(
+        long,
+        default_value = "stream0",
+        help = "Advertised stream name to configure before viewing."
+    )]
     stream_name: String,
-    #[arg(long, default_value = "autovideosink")]
+    #[arg(
+        long,
+        default_value = "autovideosink",
+        help = "GStreamer video sink factory used for local display."
+    )]
     video_sink: String,
-    #[arg(long, default_value_t = false)]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Disable the FPS and mode HUD overlay in the viewer window."
+    )]
     no_overlay: bool,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Write a recording to this output path while continuing live display."
+    )]
     record: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "When --record is set, choose a specific open encoder.",
+        long_help = "When --record is set, choose a specific open encoder. If omitted, eeview picks the first available open encoder/mux pair from av1, vp9, then theora."
+    )]
     encoder: Option<EncoderKind>,
 }
 
@@ -86,8 +144,23 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = Cli::parse_from(args);
+    let cli = Cli::parse_from(normalize_help_flag_punctuation(args));
     run(cli)
+}
+
+fn normalize_help_flag_punctuation<I, T>(args: I) -> Vec<OsString>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+{
+    args.into_iter()
+        .map(Into::into)
+        .map(|arg: OsString| match arg.to_str() {
+            Some("--help,") => OsString::from("--help"),
+            Some("-h,") => OsString::from("-h"),
+            _ => arg,
+        })
+        .collect()
 }
 
 pub fn run(cli: Cli) -> Result<()> {
@@ -418,7 +491,9 @@ pub fn suggested_record_path(kind: EncoderKind, base: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
+    use std::ffi::OsString;
+
+    use clap::{CommandFactory, Parser};
     use eevideo_control::{
         default_control_backend, AdvertisedStream, AdvertisedStreamMode, ControlTarget,
         ControlTransportKind, DeviceDescription, DeviceSummary,
@@ -428,8 +503,15 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        advertised_stream_overlay_text, build_pipeline, suggested_record_path, Cli, EncoderKind,
+        advertised_stream_overlay_text, build_pipeline, normalize_help_flag_punctuation,
+        suggested_record_path, Cli, EncoderKind,
     };
+
+    fn render_long_help(mut command: clap::Command) -> String {
+        let mut output = Vec::new();
+        command.write_long_help(&mut output).unwrap();
+        String::from_utf8(output).unwrap()
+    }
 
     fn init_gst() {
         static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
@@ -449,6 +531,30 @@ mod tests {
             suggested_record_path(EncoderKind::Vp9, std::path::Path::new("out")).extension(),
             Some(std::ffi::OsStr::new("webm"))
         );
+    }
+
+    #[test]
+    fn top_level_help_mentions_live_view_examples() {
+        let help = render_long_help(Cli::command());
+
+        assert!(help.contains("Examples:"));
+        assert!(help.contains("--bind-address 192.168.1.20"));
+        assert!(help.contains("Bind the UDP receiver to a concrete local IPv4 address."));
+        assert!(help.contains("When --record is set, choose a specific open encoder."));
+    }
+
+    #[test]
+    fn normalizes_help_flags_with_trailing_commas() {
+        let args = normalize_help_flag_punctuation([
+            OsString::from("eeview"),
+            OsString::from("--help,"),
+            OsString::from("-h,"),
+            OsString::from("--other,"),
+        ]);
+
+        assert_eq!(args[1], OsString::from("--help"));
+        assert_eq!(args[2], OsString::from("-h"));
+        assert_eq!(args[3], OsString::from("--other,"));
     }
 
     #[test]
