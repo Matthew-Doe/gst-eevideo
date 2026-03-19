@@ -5,11 +5,11 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, ValueEnum};
+use gst::prelude::*;
 use gsteevideo::eevideo_control::{
     AdvertisedStreamMode, CoapRegisterBackendConfig, ControlTarget, ControlTransportKind,
     DeviceController, DeviceDescription,
 };
-use gst::prelude::*;
 use gstreamer as gst;
 
 #[derive(Debug, Parser)]
@@ -35,6 +35,10 @@ pub struct Cli {
     latency_ms: u64,
     #[arg(long, default_value = "stream0")]
     stream_name: String,
+    #[arg(long)]
+    max_packet_size: Option<u16>,
+    #[arg(long)]
+    packet_delay_ns: Option<u64>,
     #[arg(long, default_value = "autovideosink")]
     video_sink: String,
     #[arg(long, default_value_t = false)]
@@ -65,6 +69,22 @@ struct SourceStats {
     frames_received: u64,
     frames_dropped: u64,
     packet_anomalies: u64,
+    timeout_drops: u64,
+    payload_overflow_drops: u64,
+    short_frame_drops: u64,
+    duplicate_leader_drops: u64,
+    payload_before_leader_drops: u64,
+    trailer_before_leader_drops: u64,
+    packet_after_trailer_drops: u64,
+    parse_failures: u64,
+    expected_format_mismatches: u64,
+    midstream_format_changes: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ManagedTransportSettings {
+    max_packet_size: u16,
+    packet_delay_ns: u64,
 }
 
 const ENCODER_SPECS: &[EncoderSpec] = &[
@@ -87,6 +107,9 @@ const ENCODER_SPECS: &[EncoderSpec] = &[
         mux_pad_template: "video_%u",
     },
 ];
+
+const DEFAULT_MANAGED_MAX_PACKET_SIZE: u16 = 1400;
+const DEFAULT_MANAGED_PACKET_DELAY_NS: u64 = 0;
 
 pub fn main_entry<I, T>(args: I) -> Result<()>
 where
@@ -116,8 +139,11 @@ pub fn run(cli: Cli) -> Result<()> {
         controller
             .describe(&target)
             .ok()
-            .and_then(|description| advertised_stream_overlay_text(&description, &cli.stream_name))
+            .as_ref()
+            .and_then(|description| advertised_stream_overlay_text(description, &cli.stream_name))
     };
+    let managed_transport =
+        select_managed_transport_settings(cli.max_packet_size, cli.packet_delay_ns);
     let recording_spec = if cli.record.is_some() {
         Some(select_encoder(cli.encoder)?)
     } else {
@@ -128,6 +154,7 @@ pub fn run(cli: Cli) -> Result<()> {
         &cli,
         controller.shared_backend(),
         target,
+        managed_transport,
         recording_spec,
         overlay_text.as_deref(),
     )?;
@@ -176,6 +203,7 @@ fn build_pipeline(
     cli: &Cli,
     backend: gsteevideo::eevideo_control::SharedControlBackend,
     target: ControlTarget,
+    managed_transport: ManagedTransportSettings,
     recording_spec: Option<EncoderSpec>,
     overlay_text: Option<&str>,
 ) -> Result<gst::Pipeline> {
@@ -186,6 +214,11 @@ fn build_pipeline(
         .property("port", cli.port)
         .property("timeout-ms", cli.source_timeout_ms)
         .property("latency-ms", cli.latency_ms)
+        .property(
+            "managed-max-packet-size",
+            u32::from(managed_transport.max_packet_size),
+        )
+        .property("managed-packet-delay-ns", managed_transport.packet_delay_ns)
         .build()
         .context("failed to create eevideosrc")?;
 
@@ -338,12 +371,18 @@ fn advertised_stream_overlay_text(
     description: &DeviceDescription,
     stream_name: &str,
 ) -> Option<String> {
+    advertised_stream_mode(description, stream_name).map(format_mode_overlay_text)
+}
+
+fn advertised_stream_mode<'a>(
+    description: &'a DeviceDescription,
+    stream_name: &str,
+) -> Option<&'a AdvertisedStreamMode> {
     description
         .streams
         .iter()
         .find(|stream| stream.name == stream_name)
         .and_then(|stream| stream.mode.as_ref())
-        .map(format_mode_overlay_text)
 }
 
 fn format_mode_overlay_text(mode: &AdvertisedStreamMode) -> String {
@@ -354,6 +393,19 @@ fn format_mode_overlay_text(mode: &AdvertisedStreamMode) -> String {
         mode.height,
         mode.fps
     )
+}
+
+fn select_managed_transport_settings(
+    max_packet_size_override: Option<u16>,
+    packet_delay_override: Option<u64>,
+) -> ManagedTransportSettings {
+    let max_packet_size = max_packet_size_override.unwrap_or(DEFAULT_MANAGED_MAX_PACKET_SIZE);
+    let packet_delay_ns = packet_delay_override.unwrap_or(DEFAULT_MANAGED_PACKET_DELAY_NS);
+
+    ManagedTransportSettings {
+        max_packet_size,
+        packet_delay_ns,
+    }
 }
 
 fn make_element(factory: &str, name: Option<&str>) -> Result<gst::Element> {
@@ -427,10 +479,9 @@ pub fn suggested_record_path(kind: EncoderKind, base: &Path) -> PathBuf {
 }
 
 fn pipeline_start_error(bus: &gst::Bus) -> anyhow::Error {
-    if let Some(message) = bus.timed_pop_filtered(
-        gst::ClockTime::from_seconds(1),
-        &[gst::MessageType::Error],
-    ) {
+    if let Some(message) =
+        bus.timed_pop_filtered(gst::ClockTime::from_seconds(1), &[gst::MessageType::Error])
+    {
         if let gst::MessageView::Error(err) = message.view() {
             return anyhow!("failed to start pipeline: {}", format_bus_error(err));
         }
@@ -458,17 +509,82 @@ fn read_source_stats(pipeline: &gst::Pipeline) -> SourceStats {
     };
 
     SourceStats {
-        frames_received: source.property("frames-received"),
-        frames_dropped: source.property("frames-dropped"),
-        packet_anomalies: source.property("packet-anomalies"),
+        frames_received: read_u64_property(&source, "frames-received"),
+        frames_dropped: read_u64_property(&source, "frames-dropped"),
+        packet_anomalies: read_u64_property(&source, "packet-anomalies"),
+        timeout_drops: read_u64_property(&source, "timeout-drops"),
+        payload_overflow_drops: read_u64_property(&source, "payload-overflow-drops"),
+        short_frame_drops: read_u64_property(&source, "short-frame-drops"),
+        duplicate_leader_drops: read_u64_property(&source, "duplicate-leader-drops"),
+        payload_before_leader_drops: read_u64_property(&source, "payload-before-leader-drops"),
+        trailer_before_leader_drops: read_u64_property(&source, "trailer-before-leader-drops"),
+        packet_after_trailer_drops: read_u64_property(&source, "packet-after-trailer-drops"),
+        parse_failures: read_u64_property(&source, "parse-failures"),
+        expected_format_mismatches: read_u64_property(&source, "expected-format-mismatches"),
+        midstream_format_changes: read_u64_property(&source, "midstream-format-changes"),
     }
 }
 
 fn format_source_stats(stats: SourceStats) -> String {
-    format!(
+    let mut rendered = format!(
         "frames-received={} frames-dropped={} packet-anomalies={}",
         stats.frames_received, stats.frames_dropped, stats.packet_anomalies
-    )
+    );
+
+    if let Some(breakdown) = format_source_anomaly_breakdown(stats) {
+        rendered.push_str(" anomaly-breakdown=[");
+        rendered.push_str(&breakdown);
+        rendered.push(']');
+    }
+
+    rendered
+}
+
+fn read_u64_property(element: &gst::Element, property_name: &str) -> u64 {
+    if element.find_property(property_name).is_some() {
+        element.property(property_name)
+    } else {
+        0
+    }
+}
+
+fn format_source_anomaly_breakdown(stats: SourceStats) -> Option<String> {
+    let entries = [
+        ("timeout-drops", stats.timeout_drops),
+        ("payload-overflow-drops", stats.payload_overflow_drops),
+        ("short-frame-drops", stats.short_frame_drops),
+        ("duplicate-leader-drops", stats.duplicate_leader_drops),
+        (
+            "payload-before-leader-drops",
+            stats.payload_before_leader_drops,
+        ),
+        (
+            "trailer-before-leader-drops",
+            stats.trailer_before_leader_drops,
+        ),
+        (
+            "packet-after-trailer-drops",
+            stats.packet_after_trailer_drops,
+        ),
+        ("parse-failures", stats.parse_failures),
+        (
+            "expected-format-mismatches",
+            stats.expected_format_mismatches,
+        ),
+        ("midstream-format-changes", stats.midstream_format_changes),
+    ];
+
+    let rendered = entries
+        .into_iter()
+        .filter(|(_, value)| *value > 0)
+        .map(|(label, value)| format!("{label}={value}"))
+        .collect::<Vec<_>>();
+
+    if rendered.is_empty() {
+        None
+    } else {
+        Some(rendered.join(","))
+    }
 }
 
 fn finalize_run_result(
@@ -497,17 +613,18 @@ fn finalize_run_result(
 mod tests {
     use anyhow::anyhow;
     use clap::Parser;
+    use gst::prelude::*;
     use gsteevideo::eevideo_control::{
         default_control_backend, AdvertisedStream, AdvertisedStreamMode, ControlTarget,
         ControlTransportKind, DeviceDescription, DeviceSummary,
     };
-    use gst::prelude::*;
     use gstreamer as gst;
     use std::path::PathBuf;
 
     use super::{
         advertised_stream_overlay_text, build_pipeline, finalize_run_result, format_source_stats,
-        suggested_record_path, Cli, EncoderKind, SourceStats,
+        select_managed_transport_settings, suggested_record_path, Cli, EncoderKind,
+        ManagedTransportSettings, SourceStats,
     };
 
     #[test]
@@ -517,8 +634,40 @@ mod tests {
                 frames_received: 12,
                 frames_dropped: 3,
                 packet_anomalies: 7,
+                timeout_drops: 0,
+                payload_overflow_drops: 0,
+                short_frame_drops: 0,
+                duplicate_leader_drops: 0,
+                payload_before_leader_drops: 0,
+                trailer_before_leader_drops: 0,
+                packet_after_trailer_drops: 0,
+                parse_failures: 0,
+                expected_format_mismatches: 0,
+                midstream_format_changes: 0,
             }),
             "frames-received=12 frames-dropped=3 packet-anomalies=7"
+        );
+    }
+
+    #[test]
+    fn formats_packet_anomaly_breakdown_when_present() {
+        assert_eq!(
+            format_source_stats(SourceStats {
+                frames_received: 12,
+                frames_dropped: 3,
+                packet_anomalies: 7,
+                timeout_drops: 2,
+                payload_overflow_drops: 0,
+                short_frame_drops: 0,
+                duplicate_leader_drops: 0,
+                payload_before_leader_drops: 0,
+                trailer_before_leader_drops: 0,
+                packet_after_trailer_drops: 0,
+                parse_failures: 4,
+                expected_format_mismatches: 1,
+                midstream_format_changes: 0,
+            }),
+            "frames-received=12 frames-dropped=3 packet-anomalies=7 anomaly-breakdown=[timeout-drops=2,parse-failures=4,expected-format-mismatches=1]"
         );
     }
 
@@ -531,6 +680,16 @@ mod tests {
                 frames_received: 4,
                 frames_dropped: 2,
                 packet_anomalies: 1,
+                timeout_drops: 0,
+                payload_overflow_drops: 0,
+                short_frame_drops: 0,
+                duplicate_leader_drops: 0,
+                payload_before_leader_drops: 0,
+                trailer_before_leader_drops: 0,
+                packet_after_trailer_drops: 0,
+                parse_failures: 0,
+                expected_format_mismatches: 0,
+                midstream_format_changes: 0,
             },
         )
         .unwrap_err();
@@ -623,6 +782,17 @@ mod tests {
     }
 
     #[test]
+    fn selects_stable_managed_transport_defaults() {
+        assert_eq!(
+            select_managed_transport_settings(None, None),
+            ManagedTransportSettings {
+                max_packet_size: 1400,
+                packet_delay_ns: 0,
+            }
+        );
+    }
+
+    #[test]
     fn build_pipeline_uses_overlay_elements_by_default() {
         init_gst();
         let cli = Cli::try_parse_from([
@@ -644,6 +814,7 @@ mod tests {
                 transport_kind: ControlTransportKind::CoapRegister,
                 auth_scope: None,
             },
+            select_managed_transport_settings(None, None),
             None,
             Some("Mode: UYVY 1280x720 @ 30 fps"),
         )
@@ -684,6 +855,7 @@ mod tests {
                 transport_kind: ControlTransportKind::CoapRegister,
                 auth_scope: None,
             },
+            select_managed_transport_settings(None, None),
             None,
             Some("Mode: UYVY 1280x720 @ 30 fps"),
         )
@@ -723,6 +895,7 @@ mod tests {
                 transport_kind: ControlTransportKind::CoapRegister,
                 auth_scope: None,
             },
+            select_managed_transport_settings(None, None),
             None,
             None,
         )
@@ -754,6 +927,8 @@ mod tests {
             source_timeout_ms: 2000,
             latency_ms: 0,
             stream_name: "stream0".to_string(),
+            max_packet_size: None,
+            packet_delay_ns: None,
             video_sink: "fakesink".to_string(),
             no_overlay: false,
             record: Some(PathBuf::from("capture.mkv")),
@@ -768,6 +943,7 @@ mod tests {
                 transport_kind: ControlTransportKind::CoapRegister,
                 auth_scope: None,
             },
+            select_managed_transport_settings(None, None),
             Some(super::select_encoder(None).unwrap()),
             Some("Mode: UYVY 1280x720 @ 30 fps"),
         )

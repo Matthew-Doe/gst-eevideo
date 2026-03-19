@@ -12,3 +12,4 @@ anyhow.workspace = true
 eevideo-control = { path = "../eevideo-control" }
 eevideo-proto = { path = "../eevideo-proto" }
 if-addrs = "0.13"
+socket2.workspace = true

@@ -16,6 +16,7 @@ use eevideo_control::{
 };
 use eevideo_proto::{CompatPacketizer, PayloadType, PixelFormat, VideoFrame};
 use if_addrs::{get_if_addrs, IfAddr};
+use socket2::SockRef;
 
 pub const CAPABILITIES_ADDR: u32 = 0;
 pub const FEATURE_TABLE_ADDR: u32 = 16;
@@ -550,12 +551,15 @@ where
     C: CaptureBackend,
 {
     thread::spawn(move || {
+        const SENDER_SOCKET_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+
         let sender_bind = SocketAddr::new(IpAddr::V4(interface.address), 0);
         let socket = UdpSocket::bind(sender_bind)
             .or_else(|_| UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)));
         let Ok(socket) = socket else {
             return;
         };
+        let _ = SockRef::from(&socket).set_send_buffer_size(SENDER_SOCKET_BUFFER_BYTES);
 
         let mut active_capture = None;
         let mut active_mtu = None;
