@@ -189,36 +189,9 @@ jobs:
             gcc-aarch64-linux-gnu \
             pkg-config
 
-      - name: Install arm64 sysroot dependencies from Ubuntu Ports
+      - name: Prepare arm64 sysroot
         run: |
-          sudo dpkg --add-architecture arm64
-          sourceparts="$(mktemp -d)"
-          cat <<'EOF' > "$sourceparts/ubuntu-archive-amd64.sources"
-          Types: deb
-          URIs: http://azure.archive.ubuntu.com/ubuntu
-          Suites: noble noble-updates noble-backports noble-security
-          Components: main universe restricted multiverse
-          Architectures: amd64
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          EOF
-          cat <<'EOF' > "$sourceparts/ubuntu-ports-arm64.sources"
-          Types: deb
-          URIs: http://ports.ubuntu.com/ubuntu-ports
-          Suites: noble noble-updates noble-backports noble-security
-          Components: main universe restricted multiverse
-          Architectures: arm64
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          EOF
-          sudo apt-get update \
-            -o Dir::Etc::sourcelist=/dev/null \
-            -o Dir::Etc::sourceparts="$sourceparts"
-          sudo apt-get install -y \
-            -o Dir::Etc::sourcelist=/dev/null \
-            -o Dir::Etc::sourceparts="$sourceparts" \
-            libc6-dev:arm64 \
-            libglib2.0-dev:arm64 \
-            libgstreamer1.0-dev:arm64 \
-            libgstreamer-plugins-base1.0-dev:arm64
+          bash cross/jetson-orin/prepare-sysroot.sh /tmp/jetson-sysroot
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -229,7 +202,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Cross build for Jetson-compatible sysroot
-        run: cross/jetson-orin/build.sh /
+        run: cross/jetson-orin/build.sh /tmp/jetson-sysroot
 
       - name: Check cross-built artifacts
         run: |

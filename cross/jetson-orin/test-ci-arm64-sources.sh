@@ -22,17 +22,13 @@ assert_not_contains() {
   fi
 }
 
-assert_contains "$workflow_contents" 'sourceparts="$(mktemp -d)"'
-assert_contains "$workflow_contents" 'cat <<'\''EOF'\'' > "$sourceparts/ubuntu-archive-amd64.sources"'
-assert_contains "$workflow_contents" "URIs: http://azure.archive.ubuntu.com/ubuntu"
-assert_contains "$workflow_contents" "Architectures: amd64"
-assert_contains "$workflow_contents" 'cat <<'\''EOF'\'' > "$sourceparts/ubuntu-ports-arm64.sources"'
-assert_contains "$workflow_contents" "URIs: http://ports.ubuntu.com/ubuntu-ports"
-assert_contains "$workflow_contents" "Architectures: arm64"
-assert_contains "$workflow_contents" '-o Dir::Etc::sourceparts="$sourceparts"'
+assert_contains "$workflow_contents" "- name: Prepare arm64 sysroot"
+assert_contains "$workflow_contents" "bash cross/jetson-orin/prepare-sysroot.sh /tmp/jetson-sysroot"
+assert_contains "$workflow_contents" "run: cross/jetson-orin/build.sh /tmp/jetson-sysroot"
 
-assert_not_contains "$workflow_contents" "for src in /etc/apt/sources.list.d/*.sources; do"
-assert_not_contains "$workflow_contents" "/etc/apt/arm64-ports.sources.list.d"
-assert_not_contains "$workflow_contents" "packages.microsoft.com"
+assert_not_contains "$workflow_contents" "sudo dpkg --add-architecture arm64"
+assert_not_contains "$workflow_contents" "sourceparts=\"$(mktemp -d)\""
+assert_not_contains "$workflow_contents" "Install arm64 sysroot dependencies from Ubuntu Ports"
+assert_not_contains "$workflow_contents" "libglib2.0-dev:arm64"
 
 echo "ci arm64 source configuration looks correct"
