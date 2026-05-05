@@ -87,6 +87,15 @@ struct ManagedTransportSettings {
     packet_delay_ns: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminalReason {
+    CtrlCRequested,
+    EosReceived,
+    BusError,
+    StartFailure,
+    StopFailure,
+}
+
 const ENCODER_SPECS: &[EncoderSpec] = &[
     EncoderSpec {
         kind: EncoderKind::Av1,
@@ -165,13 +174,19 @@ pub fn run(cli: Cli) -> Result<()> {
     })
     .context("failed to install Ctrl+C handler")?;
 
+    let mut terminal_reason = TerminalReason::EosReceived;
+    let mut terminal_detail = None::<String>;
     let run_result = (|| -> Result<()> {
-        pipeline
-            .set_state(gst::State::Playing)
-            .map_err(|_| pipeline_start_error(&bus))?;
+        pipeline.set_state(gst::State::Playing).map_err(|_| {
+            let err = pipeline_start_error(&bus);
+            terminal_reason = TerminalReason::StartFailure;
+            terminal_detail = Some(format!("{err:#}"));
+            err
+        })?;
 
         loop {
             if interrupt_rx.try_recv().is_ok() {
+                terminal_reason = TerminalReason::CtrlCRequested;
                 let _ = pipeline.send_event(gst::event::Eos::new());
                 wait_for_terminal_bus_message(&bus, Duration::from_secs(5))?;
                 break;
@@ -179,8 +194,16 @@ pub fn run(cli: Cli) -> Result<()> {
 
             if let Some(message) = bus.timed_pop(gst::ClockTime::from_mseconds(200)) {
                 match message.view() {
-                    gst::MessageView::Eos(..) => break,
-                    gst::MessageView::Error(err) => return Err(anyhow!(format_bus_error(err))),
+                    gst::MessageView::Eos(..) => {
+                        terminal_reason = TerminalReason::EosReceived;
+                        break;
+                    }
+                    gst::MessageView::Error(err) => {
+                        let reason = format_bus_error(err);
+                        terminal_reason = TerminalReason::BusError;
+                        terminal_detail = Some(reason.clone());
+                        return Err(anyhow!(reason));
+                    }
                     _ => {}
                 }
             }
@@ -194,6 +217,14 @@ pub fn run(cli: Cli) -> Result<()> {
         .map(|_| ())
         .context("failed to stop pipeline");
     let source_stats = read_source_stats(&pipeline);
+    if let Err(err) = &stop_result {
+        terminal_reason = TerminalReason::StopFailure;
+        terminal_detail = Some(format!("{err:#}"));
+    }
+    eprintln!(
+        "{}",
+        format_final_reason(terminal_reason, terminal_detail.as_deref())
+    );
     eprintln!("eeview source stats: {}", format_source_stats(source_stats));
 
     finalize_run_result(run_result, stop_result, source_stats)
@@ -503,6 +534,23 @@ fn format_bus_error(err: &gst::message::Error) -> String {
     }
 }
 
+fn format_final_reason(reason: TerminalReason, detail: Option<&str>) -> String {
+    let label = match reason {
+        TerminalReason::CtrlCRequested => "Ctrl+C requested",
+        TerminalReason::EosReceived => "EOS received",
+        TerminalReason::BusError => "bus error",
+        TerminalReason::StartFailure => "start failure",
+        TerminalReason::StopFailure => "stop failure",
+    };
+
+    match detail {
+        Some(detail) if !detail.trim().is_empty() => {
+            format!("eeview stopped: {label}: {detail}")
+        }
+        _ => format!("eeview stopped: {label}"),
+    }
+}
+
 fn read_source_stats(pipeline: &gst::Pipeline) -> SourceStats {
     let Some(source) = pipeline.by_name("eeview-source") else {
         return SourceStats::default();
@@ -622,9 +670,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        advertised_stream_overlay_text, build_pipeline, finalize_run_result, format_source_stats,
-        select_managed_transport_settings, suggested_record_path, Cli, EncoderKind,
-        ManagedTransportSettings, SourceStats,
+        advertised_stream_overlay_text, build_pipeline, finalize_run_result, format_final_reason,
+        format_source_stats, select_managed_transport_settings, suggested_record_path, Cli,
+        EncoderKind, ManagedTransportSettings, SourceStats, TerminalReason,
     };
 
     #[test]
@@ -698,6 +746,38 @@ mod tests {
         assert!(rendered.contains("pipeline error"));
         assert!(rendered.contains("additionally failed to stop pipeline"));
         assert!(rendered.contains("frames-received=4"));
+    }
+
+    #[test]
+    fn formats_terminal_reason_for_eos() {
+        assert_eq!(
+            format_final_reason(TerminalReason::EosReceived, None),
+            "eeview stopped: EOS received"
+        );
+    }
+
+    #[test]
+    fn formats_terminal_reason_for_ctrl_c() {
+        assert_eq!(
+            format_final_reason(TerminalReason::CtrlCRequested, None),
+            "eeview stopped: Ctrl+C requested"
+        );
+    }
+
+    #[test]
+    fn formats_terminal_reason_for_pipeline_error() {
+        assert_eq!(
+            format_final_reason(TerminalReason::BusError, Some("pipeline error from src")),
+            "eeview stopped: bus error: pipeline error from src"
+        );
+    }
+
+    #[test]
+    fn formats_terminal_reason_for_stop_error() {
+        assert_eq!(
+            format_final_reason(TerminalReason::StopFailure, Some("failed to stop pipeline")),
+            "eeview stopped: stop failure: failed to stop pipeline"
+        );
     }
 
     fn init_gst() {

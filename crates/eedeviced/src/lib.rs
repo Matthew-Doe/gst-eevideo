@@ -3,7 +3,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use anyhow::{bail, Result};
 use clap::{Parser, ValueEnum};
-use eevideo_device::{DeviceRuntime, DeviceRuntimeConfig};
+use eevideo_device::{DeviceRuntime, DeviceRuntimeConfig, DeviceRuntimeEventSeverity};
 use eevideo_proto::PixelFormat;
 
 mod providers;
@@ -225,6 +225,10 @@ impl DeviceDaemon {
     pub fn shutdown(&mut self) {
         self.runtime.shutdown();
     }
+
+    pub fn drain_events(&self) -> Vec<eevideo_device::DeviceRuntimeEvent> {
+        self.runtime.drain_events()
+    }
 }
 
 pub fn main_entry<I, T>(args: I) -> Result<()>
@@ -237,7 +241,7 @@ where
 }
 
 pub fn run(config: DeviceDaemonConfig) -> Result<()> {
-    let device = DeviceDaemon::spawn(config)?;
+    let mut device = DeviceDaemon::spawn(config)?;
     let (tx, rx) = std::sync::mpsc::channel();
     ctrlc::set_handler(move || {
         let _ = tx.send(());
@@ -250,9 +254,35 @@ pub fn run(config: DeviceDaemonConfig) -> Result<()> {
     );
     println!("press Ctrl+C to stop");
 
-    let _ = rx.recv();
-    drop(device);
+    loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(200)) {
+            Ok(()) => {
+                eprintln!("eedeviced stopped: Ctrl+C requested");
+                break;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                print_runtime_events(&device);
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                eprintln!("eedeviced stopped: Ctrl+C handler disconnected");
+                break;
+            }
+        }
+    }
+    device.shutdown();
+    print_runtime_events(&device);
     Ok(())
+}
+
+fn print_runtime_events(device: &DeviceDaemon) {
+    for event in device.drain_events() {
+        let label = match event.severity {
+            DeviceRuntimeEventSeverity::Info => "info",
+            DeviceRuntimeEventSeverity::Warning => "warning",
+            DeviceRuntimeEventSeverity::Error => "error",
+        };
+        eprintln!("eedeviced runtime {label}: {}", event.message);
+    }
 }
 
 fn validate_config(config: &DeviceDaemonConfig) -> Result<()> {

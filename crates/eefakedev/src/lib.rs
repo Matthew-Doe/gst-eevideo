@@ -5,7 +5,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use anyhow::{bail, Result};
 use clap::Parser;
 use eevideo_device::{
-    DeviceRuntime, DeviceRuntimeConfig, SyntheticCaptureBackend, SyntheticCaptureConfig,
+    DeviceRuntime, DeviceRuntimeConfig, DeviceRuntimeEventSeverity, SyntheticCaptureBackend,
+    SyntheticCaptureConfig,
 };
 use eevideo_proto::PixelFormat;
 
@@ -163,6 +164,10 @@ impl FakeDeviceServer {
     pub fn shutdown(&mut self) {
         self.runtime.shutdown();
     }
+
+    pub fn drain_events(&self) -> Vec<eevideo_device::DeviceRuntimeEvent> {
+        self.runtime.drain_events()
+    }
 }
 
 pub fn main_entry<I, T>(args: I) -> Result<()>
@@ -175,7 +180,7 @@ where
 }
 
 pub fn run(config: FakeDeviceConfig) -> Result<()> {
-    let server = FakeDeviceServer::spawn(config)?;
+    let mut server = FakeDeviceServer::spawn(config)?;
     let (tx, rx) = std::sync::mpsc::channel();
     ctrlc::set_handler(move || {
         let _ = tx.send(());
@@ -188,9 +193,35 @@ pub fn run(config: FakeDeviceConfig) -> Result<()> {
     );
     println!("press Ctrl+C to stop");
 
-    let _ = rx.recv();
-    drop(server);
+    loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(200)) {
+            Ok(()) => {
+                eprintln!("eefakedev stopped: Ctrl+C requested");
+                break;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                print_runtime_events(&server);
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                eprintln!("eefakedev stopped: Ctrl+C handler disconnected");
+                break;
+            }
+        }
+    }
+    server.shutdown();
+    print_runtime_events(&server);
     Ok(())
+}
+
+fn print_runtime_events(server: &FakeDeviceServer) {
+    for event in server.drain_events() {
+        let label = match event.severity {
+            DeviceRuntimeEventSeverity::Info => "info",
+            DeviceRuntimeEventSeverity::Warning => "warning",
+            DeviceRuntimeEventSeverity::Error => "error",
+        };
+        eprintln!("eefakedev runtime {label}: {}", event.message);
+    }
 }
 
 fn parse_pixel_format(value: &str) -> Result<PixelFormat, String> {

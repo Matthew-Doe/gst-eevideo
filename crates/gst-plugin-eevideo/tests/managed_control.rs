@@ -116,6 +116,17 @@ fn source_rejects_frames_that_do_not_match_applied_control_format() {
         message.is_some(),
         "expected managed-control format mismatch to post an error"
     );
+    let message = message.unwrap();
+    let error_text = format_error_message(&message);
+    assert!(
+        error_text.contains("managed-control format mismatch rejected"),
+        "expected specific format mismatch reason, got {error_text}"
+    );
+    let last_error_reason: String = src.property("last-error-reason");
+    assert_eq!(
+        last_error_reason, "managed-control format mismatch rejected",
+        "source should expose the last failure reason as a property"
+    );
     let frames_received: u64 = src.property("frames-received");
     let packet_anomalies: u64 = src.property("packet-anomalies");
     assert_eq!(
@@ -123,6 +134,16 @@ fn source_rejects_frames_that_do_not_match_applied_control_format() {
         "the source should reject the first completed frame after detecting the format mismatch"
     );
     assert!(packet_anomalies >= 1);
+}
+
+fn format_error_message(message: &gst::Message) -> String {
+    match message.view() {
+        gst::MessageView::Error(err) => {
+            let debug = err.debug().unwrap_or_default();
+            format!("{} {debug}", err.error())
+        }
+        other => panic!("expected error message, got {other:?}"),
+    }
 }
 
 fn backend() -> SharedControlBackend {

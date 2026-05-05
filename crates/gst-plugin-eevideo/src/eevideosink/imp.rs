@@ -66,6 +66,7 @@ struct RunningState {
 pub struct EeVideoSink {
     settings: Mutex<Settings>,
     state: Mutex<Option<RunningState>>,
+    last_error_reason: Mutex<String>,
     stats: Arc<StreamStats>,
     control: SharedControlBackend,
     unlocked: AtomicBool,
@@ -76,6 +77,7 @@ impl Default for EeVideoSink {
         Self {
             settings: Mutex::new(Settings::default()),
             state: Mutex::new(None),
+            last_error_reason: Mutex::new(String::new()),
             stats: Arc::new(StreamStats::default()),
             control: default_control_backend(),
             unlocked: AtomicBool::new(false),
@@ -170,6 +172,11 @@ impl ObjectImpl for EeVideoSink {
                     .blurb("Number of transmit-side packetization or socket anomalies")
                     .flags(glib::ParamFlags::READABLE)
                     .build(),
+                glib::ParamSpecString::builder("last-error-reason")
+                    .nick("Last Error Reason")
+                    .blurb("Most recent explicit sink failure reason")
+                    .flags(glib::ParamFlags::READABLE)
+                    .build(),
             ]
         });
 
@@ -219,6 +226,11 @@ impl ObjectImpl for EeVideoSink {
             "frames-sent" => self.stats.frames().to_value(),
             "frames-dropped" => self.stats.dropped_frames().to_value(),
             "packet-anomalies" => self.stats.packet_anomalies().to_value(),
+            "last-error-reason" => self
+                .last_error_reason
+                .lock()
+                .expect("last-error-reason lock poisoned")
+                .to_value(),
             _ => unreachable!("unknown property {}", pspec.name()),
         }
     }
@@ -262,6 +274,7 @@ impl ElementImpl for EeVideoSink {
 impl BaseSinkImpl for EeVideoSink {
     fn start(&self) -> Result<(), gst::ErrorMessage> {
         self.unlocked.store(false, Ordering::Relaxed);
+        self.set_last_error_reason("");
 
         let settings = self
             .settings
@@ -366,12 +379,23 @@ impl BaseSinkImpl for EeVideoSink {
     }
 
     fn stop(&self) -> Result<(), gst::ErrorMessage> {
+        let mut stop_failure = None::<String>;
         if let Some(mut state) = self.state.lock().expect("state lock poisoned").take() {
-            let _ = state.control_session.stop();
-            let _ = state.control_session.disconnect();
+            if let Err(err) = state.control_session.stop() {
+                stop_failure = Some(format!("managed-control stop failed: {err}"));
+            }
+            if let Err(err) = state.control_session.disconnect() {
+                stop_failure
+                    .get_or_insert_with(|| format!("managed-control disconnect failed: {err}"));
+            }
         }
         self.unlocked.store(false, Ordering::Relaxed);
-        Ok(())
+        if let Some(reason) = stop_failure {
+            self.set_last_error_reason(&reason);
+            Err(gst::error_msg!(gst::ResourceError::Close, ["{}", reason]))
+        } else {
+            Ok(())
+        }
     }
 
     fn set_caps(&self, caps: &gst::Caps) -> Result<(), gst::LoggableError> {
@@ -415,21 +439,37 @@ impl BaseSinkImpl for EeVideoSink {
         }
 
         let mut state_guard = self.state.lock().expect("state lock poisoned");
-        let state = state_guard.as_mut().ok_or(gst::FlowError::Error)?;
+        let state = state_guard
+            .as_mut()
+            .ok_or_else(|| self.fail_flow("sink not started", gst::FlowError::Error))?;
         let current_format = state
             .negotiated_format
-            .ok_or(gst::FlowError::NotNegotiated)?;
+            .ok_or_else(|| self.fail_flow("sink not negotiated", gst::FlowError::NotNegotiated))?;
         let expected_len = current_format.payload_len().map_err(|_| {
             self.stats.record_drop();
             self.stats.record_packet_anomaly();
-            gst::FlowError::Error
+            self.fail_flow(
+                "failed to calculate expected payload length",
+                gst::FlowError::Error,
+            )
         })?;
 
-        let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
+        let map = buffer.map_readable().map_err(|_| {
+            self.fail_flow(
+                "failed to map sink buffer for reading",
+                gst::FlowError::Error,
+            )
+        })?;
         if map.as_slice().len() != expected_len {
             self.stats.record_drop();
             self.stats.record_packet_anomaly();
-            return Err(gst::FlowError::Error);
+            return Err(self.fail_flow(
+                &format!(
+                    "payload length mismatch: expected {expected_len} bytes, got {}",
+                    map.as_slice().len()
+                ),
+                gst::FlowError::Error,
+            ));
         }
 
         let timestamp = buffer.pts().map(|pts| pts.nseconds()).unwrap_or(0);
@@ -459,8 +499,11 @@ impl BaseSinkImpl for EeVideoSink {
                 self.stats.record_drop();
                 self.stats.record_packet_anomaly();
                 match err {
-                    CompatPacketEmitError::Packet(_) | CompatPacketEmitError::Emit(_) => {
-                        gst::FlowError::Error
+                    CompatPacketEmitError::Packet(err) => {
+                        self.fail_flow(&format!("packetizer failure: {err}"), gst::FlowError::Error)
+                    }
+                    CompatPacketEmitError::Emit(err) => {
+                        self.fail_flow(&format!("UDP send failed: {err}"), gst::FlowError::Error)
                     }
                 }
             })?;
@@ -479,6 +522,21 @@ impl BaseSinkImpl for EeVideoSink {
     fn unlock_stop(&self) -> Result<(), gst::ErrorMessage> {
         self.unlocked.store(false, Ordering::Relaxed);
         Ok(())
+    }
+}
+
+impl EeVideoSink {
+    fn set_last_error_reason(&self, reason: &str) {
+        *self
+            .last_error_reason
+            .lock()
+            .expect("last-error-reason lock poisoned") = reason.to_string();
+    }
+
+    fn fail_flow(&self, reason: &str, flow: gst::FlowError) -> gst::FlowError {
+        self.set_last_error_reason(reason);
+        self.post_error_message(gst::error_msg!(gst::StreamError::Failed, ["{}", reason]));
+        flow
     }
 }
 

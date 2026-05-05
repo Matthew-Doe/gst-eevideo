@@ -106,6 +106,21 @@ pub trait CaptureBackend: Send + 'static {
     fn current_format(&self) -> Option<CaptureConfiguration>;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceRuntimeEventSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeviceRuntimeEvent {
+    pub severity: DeviceRuntimeEventSeverity,
+    pub message: String,
+}
+
+type DeviceRuntimeEvents = Arc<Mutex<Vec<DeviceRuntimeEvent>>>;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SyntheticCaptureConfig {
     pub transmit_pixel_format: Option<PixelFormat>,
@@ -237,6 +252,7 @@ pub struct DeviceRuntime {
     start_count: Arc<AtomicUsize>,
     stop_count: Arc<AtomicUsize>,
     state: Arc<(Mutex<DeviceState>, Condvar)>,
+    events: DeviceRuntimeEvents,
     control_join: Option<JoinHandle<()>>,
     sender_join: Option<JoinHandle<()>>,
 }
@@ -268,6 +284,7 @@ impl DeviceRuntime {
         let stop = Arc::new(AtomicBool::new(false));
         let start_count = Arc::new(AtomicUsize::new(0));
         let stop_count = Arc::new(AtomicUsize::new(0));
+        let events = Arc::new(Mutex::new(Vec::new()));
 
         let control_join = Some(spawn_control_loop(
             socket,
@@ -277,6 +294,7 @@ impl DeviceRuntime {
             Arc::clone(&stop),
             Arc::clone(&start_count),
             Arc::clone(&stop_count),
+            Arc::clone(&events),
         ));
         let uri = format!(
             "coap://{}",
@@ -291,6 +309,7 @@ impl DeviceRuntime {
             Arc::clone(&state),
             Arc::clone(&stop),
             capture,
+            Arc::clone(&events),
         ));
 
         Ok(Self {
@@ -300,6 +319,7 @@ impl DeviceRuntime {
             start_count,
             stop_count,
             state,
+            events,
             control_join,
             sender_join,
         })
@@ -330,8 +350,16 @@ impl DeviceRuntime {
             .clone()
     }
 
+    pub fn drain_events(&self) -> Vec<DeviceRuntimeEvent> {
+        self.events
+            .lock()
+            .expect("device runtime event lock poisoned")
+            .drain(..)
+            .collect()
+    }
+
     pub fn shutdown(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        let already_stopping = self.stop.swap(true, Ordering::Relaxed);
         let (_, cvar) = &*self.state;
         cvar.notify_all();
         let _ = UdpSocket::bind(SocketAddr::new(self.local_addr.ip(), 0))
@@ -343,6 +371,13 @@ impl DeviceRuntime {
         }
         if let Some(join) = self.sender_join.take() {
             let _ = join.join();
+        }
+        if !already_stopping {
+            push_runtime_event(
+                &self.events,
+                DeviceRuntimeEventSeverity::Info,
+                "clean shutdown requested",
+            );
         }
     }
 }
@@ -434,11 +469,24 @@ fn select_interface(config: &DeviceRuntimeConfig) -> Result<SelectedInterface> {
     };
 
     if let Some(bind_ip) = bind_ip {
-        if let Some(interface) = interfaces()?
-            .into_iter()
-            .find(|interface| interface.address == bind_ip)
-        {
-            return Ok(interface);
+        match interfaces() {
+            Ok(interfaces) => {
+                if let Some(interface) = interfaces
+                    .into_iter()
+                    .find(|interface| interface.address == bind_ip)
+                {
+                    return Ok(interface);
+                }
+            }
+            Err(err) => {
+                if bind_ip.is_loopback() {
+                    return Ok(SelectedInterface {
+                        name: "manual".to_string(),
+                        address: bind_ip,
+                    });
+                }
+                return Err(err);
+            }
         }
         return Ok(SelectedInterface {
             name: "manual".to_string(),
@@ -505,6 +553,7 @@ fn spawn_control_loop(
     stop: Arc<AtomicBool>,
     start_count: Arc<AtomicUsize>,
     stop_count: Arc<AtomicUsize>,
+    events: DeviceRuntimeEvents,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
@@ -517,12 +566,26 @@ fn spawn_control_loop(
                 {
                     continue;
                 }
-                Err(_) => break,
+                Err(err) => {
+                    push_runtime_event(
+                        &events,
+                        DeviceRuntimeEventSeverity::Error,
+                        format!("control socket receive failed: {err}"),
+                    );
+                    break;
+                }
             };
 
             let request = match CoapMessage::decode(&buffer[..size]) {
                 Ok(request) => request,
-                Err(_) => continue,
+                Err(err) => {
+                    push_runtime_event(
+                        &events,
+                        DeviceRuntimeEventSeverity::Warning,
+                        format!("control request decode failed: {err}"),
+                    );
+                    continue;
+                }
             };
 
             let response = if is_discovery_request(&request) {
@@ -532,8 +595,23 @@ fn spawn_control_loop(
             };
 
             if let Some(response) = response {
-                if let Ok(bytes) = response.encode() {
-                    let _ = socket.send_to(&bytes, peer);
+                match response.encode() {
+                    Ok(bytes) => {
+                        if let Err(err) = socket.send_to(&bytes, peer) {
+                            push_runtime_event(
+                                &events,
+                                DeviceRuntimeEventSeverity::Error,
+                                format!("control response send failed: {err}"),
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        push_runtime_event(
+                            &events,
+                            DeviceRuntimeEventSeverity::Error,
+                            format!("control response encode failed: {err}"),
+                        );
+                    }
                 }
             }
         }
@@ -546,6 +624,7 @@ fn spawn_sender_loop<C>(
     state: Arc<(Mutex<DeviceState>, Condvar)>,
     stop: Arc<AtomicBool>,
     mut capture: C,
+    events: DeviceRuntimeEvents,
 ) -> JoinHandle<()>
 where
     C: CaptureBackend,
@@ -557,6 +636,12 @@ where
         let socket = UdpSocket::bind(sender_bind)
             .or_else(|_| UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)));
         let Ok(socket) = socket else {
+            let err = socket.unwrap_err();
+            push_runtime_event(
+                &events,
+                DeviceRuntimeEventSeverity::Error,
+                format!("sender socket bind failed: {err}"),
+            );
             return;
         };
         let _ = SockRef::from(&socket).set_send_buffer_size(SENDER_SOCKET_BUFFER_BYTES);
@@ -574,7 +659,15 @@ where
 
             if settings.destination_port == 0 {
                 if active_capture.is_some() {
-                    let _ = capture.stop_capture();
+                    if let Err(err) = capture.stop_capture() {
+                        push_runtime_event(
+                            &events,
+                            DeviceRuntimeEventSeverity::Error,
+                            format!(
+                                "capture stop failed while stream destination was disabled: {err}"
+                            ),
+                        );
+                    }
                     active_capture = None;
                 }
                 thread::sleep(Duration::from_millis(20));
@@ -583,9 +676,20 @@ where
 
             if active_capture.as_ref() != Some(&settings.capture) {
                 if active_capture.is_some() {
-                    let _ = capture.stop_capture();
+                    if let Err(err) = capture.stop_capture() {
+                        push_runtime_event(
+                            &events,
+                            DeviceRuntimeEventSeverity::Error,
+                            format!("capture stop failed before reconfiguration: {err}"),
+                        );
+                    }
                 }
-                if capture.start_capture(settings.capture.clone()).is_err() {
+                if let Err(err) = capture.start_capture(settings.capture.clone()) {
+                    push_runtime_event(
+                        &events,
+                        DeviceRuntimeEventSeverity::Error,
+                        format!("capture start failed: {err}"),
+                    );
                     active_capture = None;
                     thread::sleep(Duration::from_millis(20));
                     continue;
@@ -599,7 +703,12 @@ where
                         packetizer = Some(new_packetizer);
                         active_mtu = Some(settings.mtu);
                     }
-                    Err(_) => {
+                    Err(err) => {
+                        push_runtime_event(
+                            &events,
+                            DeviceRuntimeEventSeverity::Error,
+                            format!("packetizer configuration failed: {err}"),
+                        );
                         thread::sleep(Duration::from_millis(20));
                         continue;
                     }
@@ -608,8 +717,19 @@ where
 
             let frame = match capture.next_frame() {
                 Ok(frame) => frame,
-                Err(_) => {
-                    let _ = capture.stop_capture();
+                Err(err) => {
+                    push_runtime_event(
+                        &events,
+                        DeviceRuntimeEventSeverity::Error,
+                        format!("frame pull failed: {err}"),
+                    );
+                    if let Err(stop_err) = capture.stop_capture() {
+                        push_runtime_event(
+                            &events,
+                            DeviceRuntimeEventSeverity::Error,
+                            format!("capture stop failed after frame pull failure: {stop_err}"),
+                        );
+                    }
                     active_capture = None;
                     thread::sleep(Duration::from_millis(20));
                     continue;
@@ -620,19 +740,44 @@ where
                 thread::sleep(Duration::from_millis(20));
                 continue;
             };
-            let _ = packetizer.emit_packets((&frame).into(), &mut scratch, |packet| {
+            if let Err(err) = packetizer.emit_packets((&frame).into(), &mut scratch, |packet| {
                 socket.send_to(packet, destination)?;
                 if settings.packet_delay_ns > 0 {
                     thread::sleep(Duration::from_nanos(u64::from(settings.packet_delay_ns)));
                 }
                 Ok::<(), std::io::Error>(())
-            });
+            }) {
+                push_runtime_event(
+                    &events,
+                    DeviceRuntimeEventSeverity::Error,
+                    format!("packet send failed: {err}"),
+                );
+            }
         }
 
         if active_capture.is_some() {
-            let _ = capture.stop_capture();
+            if let Err(err) = capture.stop_capture() {
+                push_runtime_event(
+                    &events,
+                    DeviceRuntimeEventSeverity::Error,
+                    format!("capture stop failed during shutdown: {err}"),
+                );
+            }
         }
     })
+}
+
+fn push_runtime_event(
+    events: &DeviceRuntimeEvents,
+    severity: DeviceRuntimeEventSeverity,
+    message: impl Into<String>,
+) {
+    if let Ok(mut events) = events.lock() {
+        events.push(DeviceRuntimeEvent {
+            severity,
+            message: message.into(),
+        });
+    }
 }
 
 fn is_discovery_request(request: &CoapMessage) -> bool {
@@ -949,9 +1094,10 @@ fn generate_pattern_data(
 mod tests {
     use super::{
         build_discovery_response, build_registers, CaptureBackend, CaptureConfiguration,
-        DeviceRuntime, DeviceRuntimeConfig, SelectedInterface, SyntheticCaptureBackend,
-        SyntheticCaptureConfig, STREAM_FPS_ADDR, STREAM_HEIGHT_ADDR, STREAM_MAX_PACKET_ADDR,
-        STREAM_PIXEL_FORMAT_ADDR, STREAM_WIDTH_ADDR,
+        DeviceRuntime, DeviceRuntimeConfig, DeviceRuntimeEventSeverity, SelectedInterface,
+        SyntheticCaptureBackend, SyntheticCaptureConfig, MAX_PACKET_ENABLE_BIT,
+        STREAM_DEST_IP_ADDR, STREAM_DEST_PORT_ADDR, STREAM_FPS_ADDR, STREAM_HEIGHT_ADDR,
+        STREAM_MAX_PACKET_ADDR, STREAM_PIXEL_FORMAT_ADDR, STREAM_WIDTH_ADDR,
     };
     use eevideo_control::discovery::parse_discovery_advertisement;
     use eevideo_control::register::RegisterClient;
@@ -1064,5 +1210,131 @@ mod tests {
 
         let registers = device.registers();
         assert_eq!(registers.get(&STREAM_FPS_ADDR).copied(), Some(30));
+    }
+
+    #[derive(Default)]
+    struct FailingCaptureBackend {
+        start_error: Option<&'static str>,
+        frame_error: Option<&'static str>,
+        started: bool,
+    }
+
+    impl CaptureBackend for FailingCaptureBackend {
+        fn start_capture(&mut self, _config: CaptureConfiguration) -> anyhow::Result<()> {
+            if let Some(message) = self.start_error {
+                anyhow::bail!("{message}");
+            }
+            self.started = true;
+            Ok(())
+        }
+
+        fn stop_capture(&mut self) -> anyhow::Result<()> {
+            self.started = false;
+            Ok(())
+        }
+
+        fn next_frame(&mut self) -> anyhow::Result<eevideo_proto::VideoFrame> {
+            if let Some(message) = self.frame_error {
+                anyhow::bail!("{message}");
+            }
+            Ok(eevideo_proto::VideoFrame {
+                frame_id: 1,
+                timestamp: 0,
+                width: 2,
+                height: 2,
+                pixel_format: PixelFormat::Mono8,
+                payload_type: PayloadType::Image,
+                data: vec![0; 4],
+            })
+        }
+
+        fn current_format(&self) -> Option<CaptureConfiguration> {
+            self.started.then_some(CaptureConfiguration {
+                width: 2,
+                height: 2,
+                pixel_format: PixelFormat::Mono8,
+                fps: 30,
+            })
+        }
+    }
+
+    #[test]
+    fn runtime_records_capture_start_failure_event() {
+        let device = DeviceRuntime::spawn(
+            DeviceRuntimeConfig {
+                bind: "127.0.0.1:0".parse().unwrap(),
+                width: 2,
+                height: 2,
+                pixel_format: PixelFormat::Mono8,
+                ..DeviceRuntimeConfig::default()
+            },
+            FailingCaptureBackend {
+                start_error: Some("camera refused start"),
+                ..FailingCaptureBackend::default()
+            },
+        )
+        .unwrap();
+
+        enable_stream(&device);
+
+        let events = wait_for_events(&device, "camera refused start");
+        assert!(events.iter().any(|event| {
+            event.severity == DeviceRuntimeEventSeverity::Error
+                && event.message.contains("capture start failed")
+                && event.message.contains("camera refused start")
+        }));
+    }
+
+    #[test]
+    fn runtime_records_frame_failure_event() {
+        let device = DeviceRuntime::spawn(
+            DeviceRuntimeConfig {
+                bind: "127.0.0.1:0".parse().unwrap(),
+                width: 2,
+                height: 2,
+                pixel_format: PixelFormat::Mono8,
+                ..DeviceRuntimeConfig::default()
+            },
+            FailingCaptureBackend {
+                frame_error: Some("sensor read timeout"),
+                ..FailingCaptureBackend::default()
+            },
+        )
+        .unwrap();
+
+        enable_stream(&device);
+
+        let events = wait_for_events(&device, "sensor read timeout");
+        assert!(events.iter().any(|event| {
+            event.severity == DeviceRuntimeEventSeverity::Error
+                && event.message.contains("frame pull failed")
+                && event.message.contains("sensor read timeout")
+        }));
+    }
+
+    fn enable_stream(device: &DeviceRuntime) {
+        let (lock, cvar) = &*device.state;
+        let mut state = lock.lock().unwrap();
+        state
+            .registers
+            .insert(STREAM_DEST_IP_ADDR, u32::from(Ipv4Addr::LOCALHOST));
+        state.registers.insert(STREAM_DEST_PORT_ADDR, 9);
+        state
+            .registers
+            .insert(STREAM_MAX_PACKET_ADDR, MAX_PACKET_ENABLE_BIT | 1200);
+        cvar.notify_all();
+    }
+
+    fn wait_for_events(device: &DeviceRuntime, needle: &str) -> Vec<super::DeviceRuntimeEvent> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let mut events = Vec::new();
+        while std::time::Instant::now() < deadline {
+            events.extend(device.drain_events());
+            if events.iter().any(|event| event.message.contains(needle)) {
+                return events;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        events
     }
 }

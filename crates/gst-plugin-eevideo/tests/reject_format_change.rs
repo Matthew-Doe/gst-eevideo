@@ -66,5 +66,22 @@ fn source_rejects_mid_stream_format_change() {
     let msg = bus.timed_pop_filtered(gst::ClockTime::from_seconds(2), &[gst::MessageType::Error]);
 
     pipeline.set_state(gst::State::Null).unwrap();
-    assert!(msg.is_some(), "expected format-change error on the bus");
+    let msg = msg.expect("expected format-change error on the bus");
+    let error_text = format_error_message(&msg);
+    assert!(
+        error_text.contains("mid-stream format change rejected"),
+        "expected specific format-change reason, got {error_text}"
+    );
+    let last_error_reason: String = src.property("last-error-reason");
+    assert_eq!(last_error_reason, "mid-stream format change rejected");
+}
+
+fn format_error_message(message: &gst::Message) -> String {
+    match message.view() {
+        gst::MessageView::Error(err) => {
+            let debug = err.debug().unwrap_or_default();
+            format!("{} {debug}", err.error())
+        }
+        other => panic!("expected error message, got {other:?}"),
+    }
 }

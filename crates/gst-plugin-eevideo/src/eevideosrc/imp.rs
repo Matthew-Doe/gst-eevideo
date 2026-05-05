@@ -176,6 +176,7 @@ pub struct EeVideoSrc {
     settings: Mutex<Settings>,
     control: Mutex<ManagedControlSettings>,
     state: Mutex<Option<RunningState>>,
+    last_error_reason: Mutex<String>,
     stats: Arc<StreamStats>,
     diagnostics: Arc<ReceiveDiagnostics>,
     unlocked: AtomicBool,
@@ -187,6 +188,7 @@ impl Default for EeVideoSrc {
             settings: Mutex::new(Settings::default()),
             control: Mutex::new(ManagedControlSettings::default()),
             state: Mutex::new(None),
+            last_error_reason: Mutex::new(String::new()),
             stats: Arc::new(StreamStats::default()),
             diagnostics: Arc::new(ReceiveDiagnostics::default()),
             unlocked: AtomicBool::new(false),
@@ -360,6 +362,11 @@ impl ObjectImpl for EeVideoSrc {
                     .blurb("Number of times the receiver rejected a live format change after startup")
                     .flags(glib::ParamFlags::READABLE)
                     .build(),
+                glib::ParamSpecString::builder("last-error-reason")
+                    .nick("Last Error Reason")
+                    .blurb("Most recent explicit source failure reason")
+                    .flags(glib::ParamFlags::READABLE)
+                    .build(),
             ]
         });
 
@@ -439,6 +446,11 @@ impl ObjectImpl for EeVideoSrc {
                 self.diagnostics.expected_format_mismatches().to_value()
             }
             "midstream-format-changes" => self.diagnostics.midstream_format_changes().to_value(),
+            "last-error-reason" => self
+                .last_error_reason
+                .lock()
+                .expect("last-error-reason lock poisoned")
+                .to_value(),
             _ => unreachable!("unknown property {}", pspec.name()),
         }
     }
@@ -482,6 +494,7 @@ impl ElementImpl for EeVideoSrc {
 impl BaseSrcImpl for EeVideoSrc {
     fn start(&self) -> Result<(), gst::ErrorMessage> {
         self.unlocked.store(false, Ordering::Relaxed);
+        self.set_last_error_reason("");
 
         let settings = self
             .settings
@@ -603,19 +616,32 @@ impl BaseSrcImpl for EeVideoSrc {
     }
 
     fn stop(&self) -> Result<(), gst::ErrorMessage> {
+        let mut stop_failure = None::<String>;
         if let Some(mut state) = self.state.lock().expect("state lock poisoned").take() {
             state.stop.store(true, Ordering::Relaxed);
             if let Some(control_session) = state.control_session.as_mut() {
-                let _ = control_session.stop();
-                let _ = control_session.disconnect();
+                if let Err(err) = control_session.stop() {
+                    stop_failure = Some(format!("managed-control stop failed: {err}"));
+                }
+                if let Err(err) = control_session.disconnect() {
+                    stop_failure
+                        .get_or_insert_with(|| format!("managed-control disconnect failed: {err}"));
+                }
             }
             if let Some(join) = state.join.take() {
-                let _ = join.join();
+                if join.join().is_err() {
+                    stop_failure.get_or_insert_with(|| "receiver thread panicked".to_string());
+                }
             }
         }
 
         self.unlocked.store(false, Ordering::Relaxed);
-        Ok(())
+        if let Some(reason) = stop_failure {
+            self.set_last_error_reason(&reason);
+            Err(gst::error_msg!(gst::ResourceError::Close, ["{}", reason]))
+        } else {
+            Ok(())
+        }
     }
 
     fn is_seekable(&self) -> bool {
@@ -645,7 +671,9 @@ impl PushSrcImpl for EeVideoSrc {
 
             let receiver = {
                 let state_guard = self.state.lock().expect("state lock poisoned");
-                let state = state_guard.as_ref().ok_or(gst::FlowError::Error)?;
+                let state = state_guard
+                    .as_ref()
+                    .ok_or_else(|| self.fail_flow("source not started", gst::FlowError::Error))?;
                 Arc::clone(&state.receiver)
             };
             let event = {
@@ -657,16 +685,24 @@ impl PushSrcImpl for EeVideoSrc {
                 Ok(ReceiverEvent::Frame(frame)) => {
                     let format = FrameFormat::from_frame(&frame);
                     let mut state_guard = self.state.lock().expect("state lock poisoned");
-                    let state = state_guard.as_mut().ok_or(gst::FlowError::Error)?;
+                    let state = state_guard.as_mut().ok_or_else(|| {
+                        self.fail_flow("source not started", gst::FlowError::Error)
+                    })?;
                     match state.negotiated_format {
                         Some(existing) if existing != format => {
                             self.stats.record_drop();
                             self.stats.record_packet_anomaly();
-                            return Err(gst::FlowError::NotNegotiated);
+                            return Err(self.fail_flow(
+                                "mid-stream format change rejected",
+                                gst::FlowError::NotNegotiated,
+                            ));
                         }
                         None => {
                             if self.obj().set_caps(&format.to_caps()).is_err() {
-                                return Err(gst::FlowError::NotNegotiated);
+                                return Err(self.fail_flow(
+                                    "failed to set source caps for negotiated frame format",
+                                    gst::FlowError::NotNegotiated,
+                                ));
                             }
                             state.negotiated_format = Some(format);
                         }
@@ -689,11 +725,28 @@ impl PushSrcImpl for EeVideoSrc {
 
                     return Ok(CreateSuccess::NewBuffer(buffer));
                 }
-                Ok(ReceiverEvent::Error(_message)) => return Err(gst::FlowError::Error),
+                Ok(ReceiverEvent::Error(message)) => {
+                    return Err(self.fail_flow(&message, gst::FlowError::Error))
+                }
                 Err(RecvTimeoutError::Timeout) => continue,
                 Err(RecvTimeoutError::Disconnected) => return Err(gst::FlowError::Eos),
             }
         }
+    }
+}
+
+impl EeVideoSrc {
+    fn set_last_error_reason(&self, reason: &str) {
+        *self
+            .last_error_reason
+            .lock()
+            .expect("last-error-reason lock poisoned") = reason.to_string();
+    }
+
+    fn fail_flow(&self, reason: &str, flow: gst::FlowError) -> gst::FlowError {
+        self.set_last_error_reason(reason);
+        self.post_error_message(gst::error_msg!(gst::StreamError::Failed, ["{}", reason]));
+        flow
     }
 }
 
