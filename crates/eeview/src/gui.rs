@@ -219,6 +219,7 @@ impl OperatorConsoleApp {
     }
 
     fn drain_events(&mut self, ctx: &egui::Context) {
+        let mut latest_frame = None;
         while let Ok(event) = self.rx.try_recv() {
             match event {
                 WorkerEvent::Devices(devices) => {
@@ -229,38 +230,7 @@ impl OperatorConsoleApp {
                         Some(0)
                     };
                 }
-                WorkerEvent::Viewer(ViewerEvent::Frame(frame)) => {
-                    if frame.width > 0 && frame.height > 0 {
-                        let size = [frame.width as usize, frame.height as usize];
-                        let image = ColorImage::from_rgba_unmultiplied(
-                            size,
-                            frame.rgba.as_slice(),
-                        );
-                        match self.texture_state.next_action(size) {
-                            FrameTextureAction::Create => {
-                                self.texture = Some(ctx.load_texture(
-                                    "eeview-live-frame",
-                                    image,
-                                    Default::default(),
-                                ));
-                            }
-                            FrameTextureAction::Update => {
-                                if let Some(texture) = self.texture.as_mut() {
-                                    texture.set(image, Default::default());
-                                } else {
-                                    self.texture = Some(ctx.load_texture(
-                                        "eeview-live-frame",
-                                        image,
-                                        Default::default(),
-                                    ));
-                                }
-                            }
-                        }
-                        self.frames += 1;
-                        self.last_frame_at = Some(Instant::now());
-                        ctx.request_repaint();
-                    }
-                }
+                WorkerEvent::Viewer(ViewerEvent::Frame(frame)) => latest_frame = Some(frame),
                 WorkerEvent::Viewer(ViewerEvent::Stats(stats)) => self.stats = stats,
                 WorkerEvent::Viewer(ViewerEvent::State(state)) => self.viewer_state = state,
                 WorkerEvent::Viewer(ViewerEvent::Error(err)) | WorkerEvent::Error(err) => {
@@ -281,12 +251,44 @@ impl OperatorConsoleApp {
                 }
             }
         }
+
+        if let Some(frame) = latest_frame {
+            self.upload_frame(ctx, frame);
+        }
+    }
+
+    fn upload_frame(&mut self, ctx: &egui::Context, frame: crate::session::VideoFrame) {
+        if frame.width <= 0 || frame.height <= 0 {
+            return;
+        }
+        let size = [frame.width as usize, frame.height as usize];
+        let image = ColorImage::from_rgba_unmultiplied(size, frame.rgba.as_slice());
+        match self.texture_state.next_action(size) {
+            FrameTextureAction::Create => {
+                self.texture =
+                    Some(ctx.load_texture("eeview-live-frame", image, Default::default()));
+            }
+            FrameTextureAction::Update => {
+                if let Some(texture) = self.texture.as_mut() {
+                    texture.set(image, Default::default());
+                } else {
+                    self.texture =
+                        Some(ctx.load_texture("eeview-live-frame", image, Default::default()));
+                }
+            }
+        }
+        self.frames += 1;
+        self.last_frame_at = Some(Instant::now());
+        ctx.request_repaint();
     }
 }
 
 impl eframe::App for OperatorConsoleApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_events(ctx);
+        if let Some(interval) = live_repaint_interval(self.viewer_state, self.state.locked) {
+            ctx.request_repaint_after(interval);
+        }
 
         egui::SidePanel::right("operator-side-panel")
             .resizable(false)
@@ -404,6 +406,15 @@ impl eframe::App for OperatorConsoleApp {
     }
 }
 
+fn live_repaint_interval(state: ViewerState, locked: bool) -> Option<Duration> {
+    match state {
+        ViewerState::Starting | ViewerState::Playing | ViewerState::Stopping if locked => {
+            Some(Duration::from_millis(16))
+        }
+        _ => None,
+    }
+}
+
 pub fn run() -> eframe::Result<()> {
     gstreamer::init().expect("failed to initialize GStreamer");
     gsteevideo::register_static().expect("failed to register EEVideo plugin");
@@ -506,7 +517,9 @@ impl FrameTextureState {
 
 #[cfg(test)]
 mod tests {
-    use super::{FrameTextureAction, FrameTextureState};
+    use super::{live_repaint_interval, FrameTextureAction, FrameTextureState};
+    use crate::session::ViewerState;
+    use std::time::Duration;
 
     #[test]
     fn frame_texture_state_reuses_same_size_frames() {
@@ -515,5 +528,14 @@ mod tests {
         assert_eq!(state.next_action([640, 360]), FrameTextureAction::Create);
         assert_eq!(state.next_action([640, 360]), FrameTextureAction::Update);
         assert_eq!(state.next_action([800, 600]), FrameTextureAction::Create);
+    }
+
+    #[test]
+    fn live_repaint_interval_keeps_running_view_awake() {
+        assert_eq!(
+            live_repaint_interval(ViewerState::Playing, true),
+            Some(Duration::from_millis(16))
+        );
+        assert_eq!(live_repaint_interval(ViewerState::Stopped, false), None);
     }
 }
