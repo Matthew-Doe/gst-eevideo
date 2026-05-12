@@ -7,12 +7,28 @@ rust-version.workspace = true
 version.workspace = true
 description = "EEVideo live viewer and recorder CLI"
 
+[features]
+default = []
+gui = ["dep:eframe"]
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
 ctrlc.workspace = true
+eframe = { version = "0.27.2", optional = true }
 gsteevideo = { package = "gst-plugin-eevideo", path = "../gst-plugin-eevideo" }
+gstreamer-app.workspace = true
 gstreamer.workspace = true
+gstreamer-video = "0.23"
+
+[[bin]]
+name = "eeview"
+path = "src/main.rs"
+
+[[bin]]
+name = "eeview-gui"
+path = "src/bin/eeview-gui.rs"
+required-features = ["gui"]
 
 [dev-dependencies]
 eevideo-proto = { path = "../eevideo-proto" }

@@ -12,6 +12,11 @@ use gsteevideo::eevideo_control::{
 };
 use gstreamer as gst;
 
+pub mod session;
+
+#[cfg(feature = "gui")]
+pub mod gui;
+
 #[derive(Debug, Parser)]
 #[command(name = "eeview", about = "EEVideo live view and recorder CLI")]
 pub struct Cli {
