@@ -75,6 +75,7 @@ Explicitly out of scope for v1:
   - discovery, describe, register read/write, and stream control CLI
 - `crates/eeview`
   - managed live viewer and recorder CLI
+  - optional native operator-console GUI
 - `crates/eevideo-device`
   - reusable EEVideo device runtime
   - discovery/control handling for device daemons
@@ -197,6 +198,12 @@ Build the host-side CLIs and device daemons:
 
 ```sh
 cargo build -p eevid -p eeview -p eefakedev -p eedeviced
+```
+
+Build the optional native `eeview` GUI:
+
+```sh
+cargo build -p eeview --features gui --bin eeview-gui
 ```
 
 `gst-plugin-eevideo` tests load GStreamer at runtime, so the GStreamer runtime
@@ -357,6 +364,17 @@ Record with open codecs only:
 ```sh
 cargo run -p eeview -- --device-uri coap://192.168.1.50:5683 --bind-address 192.168.1.20 --record capture.mkv --encoder av1
 ```
+
+Launch the native operator console:
+
+```sh
+cargo run -p eeview --features gui --bin eeview-gui
+```
+
+The GUI embeds the live stream in the application window, keeps stream controls
+at the bottom, and keeps device, recording, and diagnostics controls in the
+right panel. Recording is session-scoped: choose the output path and encoder
+before Start, then Stop ends both live viewing and recording.
 
 ## Two-PC Fake Device Workflow
 
