@@ -6,19 +6,19 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Result};
 use eframe::egui::{self, ColorImage, TextureHandle};
 use gsteevideo::eevideo_control::{
-    CoapRegisterBackendConfig, ControlTarget, ControlTransportKind, DeviceController,
-    DeviceSummary,
+    CoapRegisterBackendConfig, ControlTarget, ControlTransportKind, DeviceController, DeviceSummary,
 };
 
 use crate::session::{
-    ManagedTransportSettings, RecordingConfig, ViewerEvent, ViewerPipeline, ViewerSessionConfig,
-    ViewerState, ViewerStats,
+    ManagedTransportSettings, RecordingConfig, RecordingEncoder, ViewerEvent, ViewerPipeline,
+    ViewerSessionConfig, ViewerState, ViewerStats,
 };
 
 #[derive(Debug, Clone)]
 pub struct RecordingForm {
     pub enabled: bool,
     pub path: PathBuf,
+    pub encoder: Option<RecordingEncoder>,
 }
 
 impl Default for RecordingForm {
@@ -26,6 +26,7 @@ impl Default for RecordingForm {
         Self {
             enabled: false,
             path: PathBuf::new(),
+            encoder: None,
         }
     }
 }
@@ -40,7 +41,7 @@ impl RecordingForm {
         }
         Ok(RecordingConfig {
             path: self.path.clone(),
-            encoder: None,
+            encoder: self.encoder,
         })
     }
 }
@@ -112,7 +113,9 @@ impl OperatorConsoleState {
     }
 
     pub fn session_config(&self) -> Result<ViewerSessionConfig> {
-        let target = self.target().ok_or_else(|| anyhow::anyhow!("device is required"))?;
+        let target = self
+            .target()
+            .ok_or_else(|| anyhow::anyhow!("device is required"))?;
         Ok(ViewerSessionConfig {
             target,
             bind_address: self.bind_address.clone(),
@@ -190,7 +193,9 @@ impl OperatorConsoleApp {
                 let backend_config = self.backend_config();
                 self.state.locked = true;
                 self.viewer_state = ViewerState::Starting;
-                self.tx.send(WorkerCommand::Start(config, backend_config)).ok();
+                self.tx
+                    .send(WorkerCommand::Start(config, backend_config))
+                    .ok();
             }
             Err(err) => self.last_error = Some(format!("{err:#}")),
         }
@@ -238,7 +243,11 @@ impl OperatorConsoleApp {
                 WorkerEvent::Viewer(ViewerEvent::Stats(stats)) => self.stats = stats,
                 WorkerEvent::Viewer(ViewerEvent::State(state)) => self.viewer_state = state,
                 WorkerEvent::Viewer(ViewerEvent::Error(err)) | WorkerEvent::Error(err) => {
-                    self.last_error = Some(err)
+                    self.last_error = Some(err);
+                    if self.viewer_state == ViewerState::Starting {
+                        self.viewer_state = ViewerState::Stopped;
+                        self.state.locked = false;
+                    }
                 }
                 WorkerEvent::Viewer(ViewerEvent::Eos) => {
                     self.viewer_state = ViewerState::Stopped;
@@ -304,6 +313,26 @@ impl eframe::App for OperatorConsoleApp {
                     if ui.text_edit_singleline(&mut record_path).changed() {
                         self.state.recording.path = PathBuf::from(record_path);
                     }
+                    egui::ComboBox::from_label("Encoder")
+                        .selected_text(recording_encoder_label(self.state.recording.encoder))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.state.recording.encoder, None, "Auto");
+                            ui.selectable_value(
+                                &mut self.state.recording.encoder,
+                                Some(RecordingEncoder::Av1),
+                                "AV1",
+                            );
+                            ui.selectable_value(
+                                &mut self.state.recording.encoder,
+                                Some(RecordingEncoder::Vp9),
+                                "VP9",
+                            );
+                            ui.selectable_value(
+                                &mut self.state.recording.encoder,
+                                Some(RecordingEncoder::Theora),
+                                "Theora",
+                            );
+                        });
                 });
 
                 ui.separator();
@@ -314,7 +343,10 @@ impl eframe::App for OperatorConsoleApp {
                 ui.label(format!("Dropped: {}", self.stats.frames_dropped));
                 ui.label(format!("Anomalies: {}", self.stats.packet_anomalies));
                 if let Some(last_frame_at) = self.last_frame_at {
-                    ui.label(format!("Last frame: {:.1}s ago", last_frame_at.elapsed().as_secs_f32()));
+                    ui.label(format!(
+                        "Last frame: {:.1}s ago",
+                        last_frame_at.elapsed().as_secs_f32()
+                    ));
                 }
                 if let Some(err) = &self.last_error {
                     ui.colored_label(egui::Color32::LIGHT_RED, err);
@@ -383,9 +415,14 @@ fn worker_loop(rx: Receiver<WorkerCommand>, tx: Sender<WorkerEvent>) {
             WorkerCommand::Start(config, backend_config) => {
                 let controller = DeviceController::new(backend_config);
                 match ViewerPipeline::start(config, controller.shared_backend()) {
-                    Ok(pipeline) => {
-                        while let Ok(event) = pipeline.events().try_recv() {
-                            tx.send(WorkerEvent::Viewer(event)).ok();
+                    Ok(mut pipeline) => {
+                        if let Some(events) = pipeline.take_events() {
+                            let event_tx = tx.clone();
+                            thread::spawn(move || {
+                                while let Ok(event) = events.recv() {
+                                    event_tx.send(WorkerEvent::Viewer(event)).ok();
+                                }
+                            });
                         }
                         viewer = Some(pipeline);
                     }
@@ -403,12 +440,6 @@ fn worker_loop(rx: Receiver<WorkerCommand>, tx: Sender<WorkerEvent>) {
                 }
             }
         }
-
-        if let Some(pipeline) = viewer.as_ref() {
-            while let Ok(event) = pipeline.events().try_recv() {
-                tx.send(WorkerEvent::Viewer(event)).ok();
-            }
-        }
     }
 }
 
@@ -418,5 +449,14 @@ fn empty_to_none(value: &str) -> Option<String> {
         None
     } else {
         Some(trimmed.to_string())
+    }
+}
+
+fn recording_encoder_label(encoder: Option<RecordingEncoder>) -> &'static str {
+    match encoder {
+        None => "Auto",
+        Some(RecordingEncoder::Av1) => "AV1",
+        Some(RecordingEncoder::Vp9) => "VP9",
+        Some(RecordingEncoder::Theora) => "Theora",
     }
 }

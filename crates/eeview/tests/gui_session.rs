@@ -5,13 +5,12 @@ use std::time::Duration;
 
 use eeview::gui::{OperatorConsoleState, RecordingForm};
 use eeview::session::{
-    build_viewer_pipeline, ManagedTransportSettings, RecordingConfig, ViewerSessionConfig,
+    build_viewer_pipeline, ManagedTransportSettings, RecordingConfig, RecordingEncoder,
+    ViewerSessionConfig,
 };
-use gstreamer as gst;
 use gst::prelude::*;
-use gsteevideo::eevideo_control::{
-    default_control_backend, ControlTarget, ControlTransportKind,
-};
+use gsteevideo::eevideo_control::{default_control_backend, ControlTarget, ControlTransportKind};
+use gstreamer as gst;
 
 fn init_gst() {
     static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
@@ -61,9 +60,14 @@ fn recording_form_requires_path_when_enabled() {
     assert!(form.to_recording_config().is_err());
 
     form.path = PathBuf::from("capture.webm");
+    form.encoder = Some(RecordingEncoder::Vp9);
     assert_eq!(
         form.to_recording_config().unwrap().path,
         PathBuf::from("capture.webm")
+    );
+    assert_eq!(
+        form.to_recording_config().unwrap().encoder,
+        Some(RecordingEncoder::Vp9)
     );
 }
 

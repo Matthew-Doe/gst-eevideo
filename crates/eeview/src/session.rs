@@ -1,5 +1,9 @@
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread;
 use std::time::Duration;
 
@@ -123,7 +127,8 @@ const ENCODER_SPECS: &[EncoderSpec] = &[
 pub struct ViewerPipeline {
     pipeline: gst::Pipeline,
     bus_thread: Option<thread::JoinHandle<()>>,
-    events: Receiver<ViewerEvent>,
+    events: Option<Receiver<ViewerEvent>>,
+    stop_flag: Arc<AtomicBool>,
 }
 
 impl ViewerPipeline {
@@ -132,27 +137,33 @@ impl ViewerPipeline {
         let (event_tx, events) = mpsc::channel();
         configure_appsink_events(&pipeline, event_tx.clone())?;
         let bus = pipeline.bus().context("pipeline did not expose a bus")?;
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let bus_stop_flag = Arc::clone(&stop_flag);
 
-        event_tx.send(ViewerEvent::State(ViewerState::Starting)).ok();
+        event_tx
+            .send(ViewerEvent::State(ViewerState::Starting))
+            .ok();
         pipeline
             .set_state(gst::State::Playing)
             .map_err(|_| anyhow!("failed to start viewer pipeline"))?;
         event_tx.send(ViewerEvent::State(ViewerState::Playing)).ok();
 
         let bus_thread = thread::spawn(move || {
-            while let Some(message) = bus.timed_pop(gst::ClockTime::from_mseconds(200)) {
-                match message.view() {
-                    gst::MessageView::Eos(..) => {
-                        event_tx.send(ViewerEvent::Eos).ok();
-                        break;
+            while !bus_stop_flag.load(Ordering::Relaxed) {
+                if let Some(message) = bus.timed_pop(gst::ClockTime::from_mseconds(200)) {
+                    match message.view() {
+                        gst::MessageView::Eos(..) => {
+                            event_tx.send(ViewerEvent::Eos).ok();
+                            break;
+                        }
+                        gst::MessageView::Error(err) => {
+                            event_tx
+                                .send(ViewerEvent::Error(format_bus_error(err)))
+                                .ok();
+                            break;
+                        }
+                        _ => {}
                     }
-                    gst::MessageView::Error(err) => {
-                        event_tx
-                            .send(ViewerEvent::Error(format_bus_error(err)))
-                            .ok();
-                        break;
-                    }
-                    _ => {}
                 }
             }
             event_tx.send(ViewerEvent::State(ViewerState::Stopped)).ok();
@@ -161,11 +172,14 @@ impl ViewerPipeline {
         Ok(Self {
             pipeline,
             bus_thread: Some(bus_thread),
-            events,
+            events: Some(events),
+            stop_flag,
         })
     }
 
     pub fn stop(mut self) -> Result<ViewerStats> {
+        self.stop_flag.store(true, Ordering::Relaxed);
+        let stats = read_viewer_stats(&self.pipeline);
         let _ = self.pipeline.send_event(gst::event::Eos::new());
         self.pipeline
             .set_state(gst::State::Null)
@@ -174,11 +188,11 @@ impl ViewerPipeline {
         if let Some(handle) = self.bus_thread.take() {
             let _ = handle.join();
         }
-        Ok(read_viewer_stats(&self.pipeline))
+        Ok(stats)
     }
 
-    pub fn events(&self) -> &Receiver<ViewerEvent> {
-        &self.events
+    pub fn take_events(&mut self) -> Option<Receiver<ViewerEvent>> {
+        self.events.take()
     }
 }
 

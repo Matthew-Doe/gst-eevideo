@@ -32,3 +32,4 @@ required-features = ["gui"]
 
 [dev-dependencies]
 eevideo-proto = { path = "../eevideo-proto" }
+eefakedev = { path = "../eefakedev" }
