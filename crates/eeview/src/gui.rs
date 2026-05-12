@@ -155,6 +155,7 @@ pub struct OperatorConsoleApp {
     tx: Sender<WorkerCommand>,
     rx: Receiver<WorkerEvent>,
     texture: Option<TextureHandle>,
+    texture_state: FrameTextureState,
     viewer_state: ViewerState,
     stats: ViewerStats,
     frames: u64,
@@ -173,6 +174,7 @@ impl OperatorConsoleApp {
             tx: command_tx,
             rx: event_rx,
             texture: None,
+            texture_state: FrameTextureState::default(),
             viewer_state: ViewerState::Stopped,
             stats: ViewerStats::default(),
             frames: 0,
@@ -229,15 +231,34 @@ impl OperatorConsoleApp {
                 }
                 WorkerEvent::Viewer(ViewerEvent::Frame(frame)) => {
                     if frame.width > 0 && frame.height > 0 {
+                        let size = [frame.width as usize, frame.height as usize];
                         let image = ColorImage::from_rgba_unmultiplied(
-                            [frame.width as usize, frame.height as usize],
-                            &frame.rgba,
+                            size,
+                            frame.rgba.as_slice(),
                         );
-                        let texture =
-                            ctx.load_texture("eeview-live-frame", image, Default::default());
-                        self.texture = Some(texture);
+                        match self.texture_state.next_action(size) {
+                            FrameTextureAction::Create => {
+                                self.texture = Some(ctx.load_texture(
+                                    "eeview-live-frame",
+                                    image,
+                                    Default::default(),
+                                ));
+                            }
+                            FrameTextureAction::Update => {
+                                if let Some(texture) = self.texture.as_mut() {
+                                    texture.set(image, Default::default());
+                                } else {
+                                    self.texture = Some(ctx.load_texture(
+                                        "eeview-live-frame",
+                                        image,
+                                        Default::default(),
+                                    ));
+                                }
+                            }
+                        }
                         self.frames += 1;
                         self.last_frame_at = Some(Instant::now());
+                        ctx.request_repaint();
                     }
                 }
                 WorkerEvent::Viewer(ViewerEvent::Stats(stats)) => self.stats = stats,
@@ -458,5 +479,41 @@ fn recording_encoder_label(encoder: Option<RecordingEncoder>) -> &'static str {
         Some(RecordingEncoder::Av1) => "AV1",
         Some(RecordingEncoder::Vp9) => "VP9",
         Some(RecordingEncoder::Theora) => "Theora",
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FrameTextureAction {
+    Create,
+    Update,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct FrameTextureState {
+    size: Option<[usize; 2]>,
+}
+
+impl FrameTextureState {
+    fn next_action(&mut self, size: [usize; 2]) -> FrameTextureAction {
+        if self.size == Some(size) {
+            FrameTextureAction::Update
+        } else {
+            self.size = Some(size);
+            FrameTextureAction::Create
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FrameTextureAction, FrameTextureState};
+
+    #[test]
+    fn frame_texture_state_reuses_same_size_frames() {
+        let mut state = FrameTextureState::default();
+
+        assert_eq!(state.next_action([640, 360]), FrameTextureAction::Create);
+        assert_eq!(state.next_action([640, 360]), FrameTextureAction::Update);
+        assert_eq!(state.next_action([800, 600]), FrameTextureAction::Create);
     }
 }
