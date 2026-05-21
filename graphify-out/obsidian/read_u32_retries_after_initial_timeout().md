@@ -1,0 +1,20 @@
+---
+source_file: "crates/eevideo-control/src/register.rs"
+type: "code"
+community: "Register Client"
+location: "L395"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Register_Client
+---
+
+# read_u32_retries_after_initial_timeout()
+
+## Connections
+- [[.new()_8]] - `calls` [EXTRACTED]
+- [[.with_timeout()]] - `calls` [EXTRACTED]
+- [[register.rs]] - `contains` [EXTRACTED]
+- [[spawn_retry_register_server()]] - `calls` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Register_Client
